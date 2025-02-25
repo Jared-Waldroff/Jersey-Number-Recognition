@@ -36,15 +36,14 @@ optimizer = SAM(model.parameters(), base_optimizer, lr=0.1, momentum=0.9)
 ...
 
 for input, output in data:
+    # first forward-backward pass
+    loss = loss_function(output, model(input))  # use this loss for any training statistics
+    loss.backward()
+    optimizer.first_step(zero_grad=True)
 
-  # first forward-backward pass
-  loss = loss_function(output, model(input))  # use this loss for any training statistics
-  loss.backward()
-  optimizer.first_step(zero_grad=True)
-  
-  # second forward-backward pass
-  loss_function(output, model(input)).backward()  # make sure to do a full forward pass
-  optimizer.second_step(zero_grad=True)
+    # second forward-backward pass
+    loss_function(output, model(input)).backward()  # make sure to do a full forward pass
+    optimizer.second_step(zero_grad=True)
 ...
 ```
 
@@ -53,7 +52,8 @@ for input, output in data:
 **Alternative usage with a single closure-based `step` function**. This alternative offers similar API to native PyTorch optimizers like LBFGS (kindly suggested by [@rmcavoy](https://github.com/rmcavoy)):
 
 ```python
-from sam import SAM
+from sam2 import SAM
+
 ...
 
 model = YourModel()
@@ -62,15 +62,16 @@ optimizer = SAM(model.parameters(), base_optimizer, lr=0.1, momentum=0.9)
 ...
 
 for input, output in data:
-  def closure():
+    def closure():
+        loss = loss_function(output, model(input))
+        loss.backward()
+        return loss
+
+
     loss = loss_function(output, model(input))
     loss.backward()
-    return loss
-
-  loss = loss_function(output, model(input))
-  loss.backward()
-  optimizer.step(closure)
-  optimizer.zero_grad()
+    optimizer.step(closure)
+    optimizer.zero_grad()
 ...
 ```
 
