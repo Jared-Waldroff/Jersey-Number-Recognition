@@ -19,7 +19,7 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 
-from sam.sam import SAM
+from sam2.sam import SAM
 
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
@@ -395,7 +395,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--train', action='store_true', help='fine-tune model by loading public IMAGENET-trained weights')
-    parser.add_argument('--sam', action='store_true', help='Use Sharpness-Aware Minimization during training')
+    parser.add_argument('--sam2', action='store_true', help='Use Sharpness-Aware Minimization during training')
     parser.add_argument('--finetune', action='store_true', help='load custom fine-tune weights for further training')
     parser.add_argument('--data', help='data root dir')
     parser.add_argument('--trained_model_path', help='trained model to use for testing or to load for finetuning')
