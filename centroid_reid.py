@@ -51,27 +51,80 @@ def generate_features(input_folder, output_folder, model_version='res50_market')
         print("using GPU")
     model.eval()
 
-    tracks = os.listdir(input_folder)
+    # Skip hidden files like .DS_Store
+    tracks = [t for t in os.listdir(input_folder) if not t.startswith('.')]
     transforms_base = ReidTransforms(cfg)
     val_transforms = transforms_base.build_transforms(is_train=False)
 
-    for track in tqdm(tracks):
-        features = []
-        track_path = os.path.join(input_folder, track)
-        images = os.listdir(track_path)
-        output_file = os.path.join(output_folder, f"{track}_features.npy")
-        for img_path in images:
-            img = cv2.imread(os.path.join(track_path, img_path))
-            input_img = Image.fromarray(img)
-            input_img = torch.stack([val_transforms(input_img)])
-            with torch.no_grad():
-                _, global_feat = model.backbone(input_img.cuda() if use_cuda else input_img)
-                global_feat = model.bn(global_feat)
-            features.append(global_feat.cpu().numpy().reshape(-1,))
+    # Count how many we've processed
+    processed_count = 0
+    start_time = time.time()
 
-        np_feat = np.array(features)
-        with open(output_file, 'wb') as f:
-            np.save(f, np_feat)
+    # Check if we should use tqdm
+    use_tqdm = True
+    try:
+        track_iterator = tqdm(tracks)
+    except:
+        use_tqdm = False
+        track_iterator = tracks
+        logger.info("tqdm not available, using basic logging")
+
+    for track in track_iterator:
+        # Normalize the path to handle Windows path issues
+        track_path = os.path.normpath(os.path.join(input_folder, track))
+
+        # Skip if not a directory
+        if not os.path.isdir(track_path):
+            logger.info(f"Skipping {track_path} - not a directory")
+            continue
+
+        # Check if output already exists and skip if it does
+        output_file = os.path.join(output_folder, f"{track}_features.npy")
+        if os.path.exists(output_file):
+            logger.info(f"Skipping {track} - output already exists")
+            processed_count += 1
+            continue
+
+        if not use_tqdm and processed_count % 10 == 0:
+            elapsed = time.time() - start_time
+            logger.info(
+                f"Processed {processed_count}/{len(tracks)} tracks ({processed_count / len(tracks) * 100:.1f}%) in {elapsed:.1f}s")
+
+        features = []
+        # Skip hidden files
+        images = [img for img in os.listdir(track_path) if not img.startswith('.')]
+        logger.info(f"Processing {track} with {len(images)} images")
+
+        # Process each image
+        for img_path in images:
+            img_full_path = os.path.normpath(os.path.join(track_path, img_path))
+            try:
+                img = cv2.imread(img_full_path)
+                if img is None:
+                    logger.warning(f"Could not read image {img_full_path}")
+                    continue
+
+                input_img = Image.fromarray(img)
+                input_img = torch.stack([val_transforms(input_img)])
+                with torch.no_grad():
+                    _, global_feat = model.backbone(input_img.cuda() if use_cuda else input_img)
+                    global_feat = model.bn(global_feat)
+                features.append(global_feat.cpu().numpy().reshape(-1, ))
+            except Exception as e:
+                logger.error(f"Error processing {img_full_path}: {e}")
+                continue
+
+        if features:
+            np_feat = np.array(features)
+            with open(output_file, 'wb') as f:
+                np.save(f, np_feat)
+            logger.info(f"Saved features for {track} with shape {np_feat.shape}")
+        else:
+            logger.warning(f"No features generated for {track_path}")
+
+        processed_count += 1
+
+    return True
 
 
 if __name__ == "__main__":
@@ -83,7 +136,8 @@ if __name__ == "__main__":
     #create if does not exist
     Path(args.output_folder).mkdir(parents=True, exist_ok=True)
 
-    generate_features(args.tracklets_folder, args.output_folder)
+    # Convert Windows backslashes to forward slashes for consistency
+    input_folder = args.tracklets_folder.replace('\\', '/')
+    output_folder = args.output_folder.replace('\\', '/')
 
-
-
+    generate_features(input_folder, output_folder)
