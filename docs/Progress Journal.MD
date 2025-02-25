@@ -195,6 +195,5 @@ While the theoretical understanding of the original ResNet paper was straightfor
 
 #### Transformer Team Update (Aadil, Mahmoud):
 - 
-#### CNN Team Update (Jeremy Colin):
+#### CNN Team Update (Colin, Jared):
 - 
-
