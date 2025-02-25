@@ -2,6 +2,15 @@ from pathlib import Path
 import sys
 import os
 import argparse
+import time
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 ROOT = './reid/centroids-reid/'
 sys.path.append(str(ROOT))  # add ROOT to PATH
