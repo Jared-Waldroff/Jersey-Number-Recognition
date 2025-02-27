@@ -60,7 +60,7 @@ class DataPreProcessing:
             
         return tracks
   
-    def process_single_track(self, track, input_folder, val_transforms, load_only, model=None, use_cuda=False):
+    def process_single_track(self, track, input_folder, val_transforms, use_cuda=False):
         """
         Process one tracklet (i.e. one directory of images) and return a tuple (track, processed_data)
         where processed_data is either a tensor (if load_only) or a numpy array of features.
@@ -82,53 +82,23 @@ class DataPreProcessing:
                 # Apply transforms
                 transformed = val_transforms(input_img)  # returns a tensor
 
-                if load_only:
-                    # Simply store the tensor (add a batch dimension for later concatenation)
-                    track_features.append(transformed.unsqueeze(0))
-                else:
-                    # Run through model to extract features
-                    input_tensor = torch.stack([transformed])
-                    with torch.no_grad():
-                        # Ensure the tensor is on the correct device
-                        device = torch.device('cuda') if use_cuda else torch.device('cpu')
-                        input_tensor = input_tensor.to(device)
-                        _, global_feat = model.backbone(input_tensor)
-                        global_feat = model.bn(global_feat)
-                    # Flatten and convert to numpy
-                    track_features.append(global_feat.cpu().numpy().reshape(-1,))
+                # Simply store the tensor (add a batch dimension for later concatenation)
+                track_features.append(transformed.unsqueeze(0))
             except Exception as e:
                 logging.info(f"Error processing {img_full_path}: {e}")
                 continue
 
         if track_features:
-            if load_only:
-                processed = torch.cat(track_features, dim=0)
-            else:
-                processed = np.array(track_features)
+            processed = torch.cat(track_features, dim=0)
             return (track, processed)
         return None
       
-    def generate_features(self, input_folder, output_folder, model_version='res50_market', load_only=False, num_tracks=1400):
+    def generate_features(self, input_folder, output_folder, num_tracks=1400):
         """
-        If load_only is True, simply load images, apply transforms, and return the tensors.
-        Otherwise, run them through the model backbone and return the extracted features.
+        
         """
-        if not load_only:
-            # Load model if we're going to extract features
-            CONFIG_FILE, MODEL_FILE = get_specs_from_version(model_version)
-            cfg.merge_from_file(CONFIG_FILE)
-            opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True,
-                    "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
-            cfg.merge_from_list(opts)
-            use_cuda = True if torch.cuda.is_available() and cfg.GPU_IDS else False
-            model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
-            if use_cuda:
-                model.to('cuda')
-                logging.info("using GPU")
-            model.eval()
-        else:
-            use_cuda = False
-            model = None
+        use_cuda = False
+        model = None
 
         # Define validation transforms using torchvision
         val_transforms = transforms.Compose([
@@ -143,19 +113,10 @@ class DataPreProcessing:
         
         processed_data = {}
 
-        # Use parallel processing if load_only is True (IO-bound work)
-        if load_only:
-            with ProcessPoolExecutor() as executor:
-                futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms, load_only): track for track in tracks}
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Processing tracks"):
-                    result = future.result()
-                    if result is not None:
-                        track, features = result
-                        processed_data[track] = features
-        else:
-            # For GPU inference, we will need to process sequentially (or experiment with threads)
-            for track in tqdm(tracks, desc="Processing tracks"):
-                result = self.process_single_track(track, input_folder, val_transforms, load_only, model, use_cuda)
+        with ProcessPoolExecutor() as executor:
+            futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms): track for track in tracks}
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing tracks"):
+                result = future.result()
                 if result is not None:
                     track, features = result
                     processed_data[track] = features
