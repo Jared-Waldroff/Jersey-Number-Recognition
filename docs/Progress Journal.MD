@@ -195,7 +195,7 @@ While the theoretical understanding of the original ResNet paper was straightfor
 
 #### Transformer Team Update (Aadil, Mahmoud):
 - 
-#### CNN Team Update (Colin, Jared):
+#### CNN / Data Pre-Processing and Augmentation Team Update (Colin, Jared):
 **Colin:**
 - `experimented` with data augmentation by creating a `DataAugmentation` class for which we can perform certain `LegalTransformations`. This will help us increase the robustness of our models by training them on diverse scenarios
 - `created` a `working_script.ipynb` notebook with a case study on sample data augmentation use cases
