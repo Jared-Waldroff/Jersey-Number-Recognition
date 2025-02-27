@@ -196,4 +196,12 @@ While the theoretical understanding of the original ResNet paper was straightfor
 #### Transformer Team Update (Aadil, Mahmoud):
 - 
 #### CNN Team Update (Colin, Jared):
-- 
+**Colin:**
+- `experimented` with data augmentation by creating a `DataAugmentation` class for which we can perform certain `LegalTransformations`. This will help us increase the robustness of our models by training them on diverse scenarios
+- `created` a `working_script.ipynb` notebook with a case study on sample data augmentation use cases
+- `created` an `ImageEnhancement` class that we can leverage to post-process our image in our favour when we feed it to our model
+- `created` a `DataPreProcessing` class that facilitates tracklet iteration
+**Jared:**
+- `created` a custom CNN model
+- `tested` a tracklet iterator and the state of the art centroid CNN (86% accuracy)
+- `enhanced` logging in existing state of the art CNNs so that we can understand what is going on in the background (previously no logging whatsoever)
