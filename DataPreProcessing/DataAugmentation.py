@@ -47,6 +47,16 @@ class DataAugmentation:
         # Allowed transformation keys as strings (from the enum)
         self.allowed_transformations = [t.name for t in Transformations]
         
+        # Define the normalization parameters used originally.
+        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
+        self.std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+        
+    def denormalize(self, tensor):
+        """
+        Revert the normalization so that the image pixel values are in [0, 1].
+        """
+        return tensor * self.std + self.mean
+
     def augment_image(self, image, transformations_array):
         """
         Augment a single image tensor (C, H, W) using only the specified transformations.
@@ -55,8 +65,9 @@ class DataAugmentation:
         # Validate transformations: only keep those that are allowed.
         valid_transforms = [t for t in transformations_array if t in self.allowed_transformations]
         
-        # Convert tensor to PIL Image
-        pil_img = self.to_pil(image)
+        # CRUTCIAL: Denormalize before converting to PIL. If not, you get a bunch of rainbows.
+        image_denorm = self.denormalize(image)
+        pil_img = self.to_pil(image_denorm)
         aug_versions = {}
         
         # Always include the original
