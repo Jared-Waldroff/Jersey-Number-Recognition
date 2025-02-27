@@ -201,6 +201,7 @@ While the theoretical understanding of the original ResNet paper was straightfor
 - `created` a `working_script.ipynb` notebook with a case study on sample data augmentation use cases
 - `created` an `ImageEnhancement` class that we can leverage to post-process our image in our favour when we feed it to our model
 - `created` a `DataPreProcessing` class that facilitates tracklet iteration
+
 **Jared:**
 - `created` a custom CNN model
 - `tested` a tracklet iterator and the state of the art centroid CNN (86% accuracy)
