@@ -10,7 +10,7 @@ from utility.step_lr import StepLR
 from utility.bypass_bn import enable_running_stats, disable_running_stats
 
 import sys; sys.path.append("..")
-from sam import SAM
+from sam2 import SAM
 
 
 if __name__ == "__main__":

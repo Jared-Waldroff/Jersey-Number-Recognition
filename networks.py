@@ -138,3 +138,60 @@ class LegibilitySimpleClassifier(nn.Module):
         x = self.leaky_relu(self.linear1(x))
         x = F.sigmoid(self.linear2(x))
         return x
+
+
+# Custom CNN
+class CustomCNN(nn.Module):
+    def __init__(self, feature_dim=2048):
+        super(CustomCNN, self).__init__()
+        # Define a simple but effective CNN architecture
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        # Additional convolutional blocks
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.conv4 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(512)
+        self.conv5 = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=1)
+        self.bn5 = nn.BatchNorm2d(1024)
+
+        # Global pooling and feature projection
+        self.global_avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(1024, feature_dim)
+        self.bn_final = nn.BatchNorm1d(feature_dim)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = self.relu(x)
+
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = self.relu(x)
+
+        x = self.conv5(x)
+        x = self.bn5(x)
+        x = self.relu(x)
+
+        # Global feature
+        v = self.global_avgpool(x)
+        v = v.view(v.size(0), -1)
+        v = self.fc(v)
+        v = self.bn_final(v)
+
+        # To maintain the same interface as CTLModel from centroids-reid
+        return x, v

@@ -510,10 +510,22 @@ def process_jersey_id_predictions_raw(file_path, useTS = False ):
 def identify_soccer_balls(image_dir, soccer_ball_list):
     # check 10 random images for each track, mark as soccer ball if the size matches typical soccer ball size
     ball_list = []
-    tracklets = os.listdir(image_dir)
+    # Filter out hidden files and ensure we only process directories
+    tracklets = [t for t in os.listdir(image_dir) if
+                 not t.startswith('.') and os.path.isdir(os.path.join(image_dir, t))]
+
     for track in tqdm(tracklets):
         track_path = os.path.join(image_dir, track)
-        image_names = os.listdir(track_path)
+        # Skip if not a directory (extra safety check)
+        if not os.path.isdir(track_path):
+            continue
+
+        # Filter out hidden files when listing images
+        image_names = [img for img in os.listdir(track_path) if not img.startswith('.')]
+
+        if not image_names:  # Skip if no images found
+            continue
+
         sample = len(image_names) if len(image_names) < 10 else 10
         imgs = np.random.choice(image_names, size=sample, replace=False)
         width_list = []
