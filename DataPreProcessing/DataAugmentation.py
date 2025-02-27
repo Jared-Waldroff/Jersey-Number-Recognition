@@ -5,23 +5,24 @@ import torchvision.transforms.functional as F
 from PIL import Image, ImageFilter
 import torchvision.transforms as transforms
 from enum import Enum
+from PIL import ImageEnhance
 
-class Transformations(Enum):
-    rotation = 20
+class LegalTransformations(Enum):
+    rotation = 40
     blur = 3
     brightness = (0.7, 1.0)
-    contrast = (0.1, 0.2)
+    contrast = (0.7, 1.0)
     stretch = (0.7, 1.3)
     horizontal_flip = True
 
 class DataAugmentation:
     def __init__(self, data, 
-                 max_rotation=Transformations.rotation.value, 
-                 max_blur=Transformations.blur.value, 
-                 brightness_range=Transformations.brightness.value, 
-                 contrast_range=Transformations.contrast.value, 
-                 stretch_range=Transformations.stretch.value,
-                 horizontal_flip=Transformations.horizontal_flip.value):
+                 max_rotation=LegalTransformations.rotation.value, 
+                 max_blur=LegalTransformations.blur.value, 
+                 brightness_range=LegalTransformations.brightness.value, 
+                 contrast_range=LegalTransformations.contrast.value, 
+                 stretch_range=LegalTransformations.stretch.value,
+                 horizontal_flip=LegalTransformations.horizontal_flip.value):
         """
         Args:
             data: dict mapping track names to tensors of shape (N, C, H, W).
@@ -45,7 +46,7 @@ class DataAugmentation:
         self.to_tensor = transforms.ToTensor()
         
         # Allowed transformation keys as strings (from the enum)
-        self.allowed_transformations = [t.name for t in Transformations]
+        self.allowed_transformations = [t.name for t in LegalTransformations]
         
         # Define the normalization parameters used originally.
         self.mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
@@ -135,3 +136,76 @@ class DataAugmentation:
                 track_aug.append(aug_versions)
             augmented_data[track] = track_aug
         return augmented_data
+
+class ImageEnhancement:
+    """
+    Our algo is designed so that we train our images on tough scenarios.
+    At runtime, we want to help our model out by enhancing the images.
+    This means using properties from DataAugmentation to our advantage at runtime.
+    Aspects include: increasing contrast, brightness and sharpness.
+    """
+
+    def __init__(self, 
+                 brightness_factor=1.2, 
+                 contrast_factor=1.2, 
+                 sharpness_factor=1.5,
+                 mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
+                 std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
+        """
+        Args:
+            brightness_factor: Factor to enhance brightness (values >1 increase brightness).
+            contrast_factor: Factor to enhance contrast.
+            sharpness_factor: Factor to enhance sharpness.
+            mean: Normalization mean used originally.
+            std: Normalization std used originally.
+        """
+        self.brightness_factor = brightness_factor
+        self.contrast_factor = contrast_factor
+        self.sharpness_factor = sharpness_factor
+        self.mean = mean
+        self.std = std
+
+        # Converters for tensor <-> PIL Image
+        self.to_pil = transforms.ToPILImage()
+        self.to_tensor = transforms.ToTensor()
+
+    def denormalize(self, tensor):
+        """
+        Reverts normalization: tensor * std + mean.
+        """
+        return tensor * self.std + self.mean
+
+    def normalize(self, tensor):
+        """
+        Applies normalization: (tensor - mean) / std.
+        """
+        return (tensor - self.mean) / self.std
+
+    def enhance_image(self, image):
+        """
+        Full-pass of all favourable operations.
+        Enhances an image tensor (C, H, W) by increasing brightness, contrast, and sharpness.
+        Assumes the input image is normalized.
+        Returns a normalized tensor with enhanced properties.
+        """
+        # Denormalize so that pixel values are in [0, 1]
+        denorm = self.denormalize(image)
+        # Convert to PIL Image
+        pil_img = self.to_pil(denorm)
+        
+        # Enhance brightness, contrast, and sharpness using PIL's ImageEnhance.
+        enhancer = ImageEnhance.Brightness(pil_img)
+        pil_img = enhancer.enhance(self.brightness_factor)
+        
+        enhancer = ImageEnhance.Contrast(pil_img)
+        pil_img = enhancer.enhance(self.contrast_factor)
+        
+        enhancer = ImageEnhance.Sharpness(pil_img)
+        pil_img = enhancer.enhance(self.sharpness_factor)
+        
+        # Convert back to tensor
+        enhanced_tensor = self.to_tensor(pil_img)
+        # Re-normalize the tensor so that it matches the training distribution.
+        enhanced_tensor = self.normalize(enhanced_tensor)
+        
+        return enhanced_tensor
