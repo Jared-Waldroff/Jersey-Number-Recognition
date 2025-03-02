@@ -206,3 +206,18 @@ While the theoretical understanding of the original ResNet paper was straightfor
 - `created` a custom CNN model
 - `tested` a tracklet iterator and the state of the art centroid CNN (86% accuracy)
 - `enhanced` logging in existing state of the art CNNs so that we can understand what is going on in the background (previously no logging whatsoever)
+
+
+## Proposal Meeting Check and Catch Up (March 1, 2025)
+
+#### Paper review
+
+- Went through the paper put together and finalized each section
+- Entered in Mahmoud's experimental design and evaluation metrics
+- Reformatted paper
+
+#### Steps Moving Forward
+
+- Mukaan & Jeremy will be working to implement a new ResNet model to enhance the number classification step.
+- Jared & Colin will be working on data augmentation and new STR model implemenation.
+- Mahmoud & Aadil will be working on implementing ConvNet into the classification and monitoring the experiment setup an execution to ensure proper training, testing and evaluation is happening.
