@@ -219,5 +219,5 @@ While the theoretical understanding of the original ResNet paper was straightfor
 #### Steps Moving Forward
 
 - Mukaan & Jeremy will be working to implement a new ResNet model to enhance the number classification step.
-- Jared & Colin will be working on data augmentation and new STR model implemenation.
+- Jared & Colin will be working on data augmentation and implementing the new STR model enhanced with a Mixture of Experts and Retrieval Augmented Classification combination approach.
 - Mahmoud & Aadil will be working on implementing ConvNet into the classification and monitoring the experiment setup an execution to ensure proper training, testing and evaluation is happening.
