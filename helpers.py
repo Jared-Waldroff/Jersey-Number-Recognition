@@ -510,6 +510,8 @@ def process_jersey_id_predictions_raw(file_path, useTS = False ):
 def identify_soccer_balls(image_dir, soccer_ball_list):
     # check 10 random images for each track, mark as soccer ball if the size matches typical soccer ball size
     ball_list = []
+    print(f"Trying to access directory: {image_dir}")
+    print(f"Trying to access directory: {os.path.abspath(image_dir)}")
     tracklets = os.listdir(image_dir)
     for track in tqdm(tracklets):
         track_path = os.path.join(image_dir, track)

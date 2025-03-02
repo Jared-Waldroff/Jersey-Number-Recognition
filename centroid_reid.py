@@ -6,8 +6,18 @@ import argparse
 ROOT = './reid/centroids-reid/'
 sys.path.append(str(ROOT))  # add ROOT to PATH
 
+
 import numpy as np
 import torch
+
+print("Checking device...")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+else:
+    device = torch.device("cpu")
+    print("Using CPU")
+
 from tqdm import tqdm
 import cv2
 from PIL import Image
@@ -16,6 +26,7 @@ from config import cfg
 from train_ctl_model import CTLModel
 
 from datasets.transforms import ReidTransforms
+
 
 
 
@@ -28,6 +39,7 @@ MODEL_FILE = str(ROOT+'/models/resnet50-19c8e357.pth')
 ver_to_specs = {}
 ver_to_specs["res50_market"] = (ROOT+'/configs/256_resnet50.yml', ROOT+'/models/market1501_resnet50_256_128_epoch_120.ckpt')
 ver_to_specs["res50_duke"]   = (ROOT+'/configs/256_resnet50.yml', ROOT+'/models/dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
+
 
 
 def get_specs_from_version(model_version):
@@ -75,6 +87,14 @@ def generate_features(input_folder, output_folder, model_version='res50_market')
 
 
 if __name__ == "__main__":
+    
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using GPU in main: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU")
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--tracklets_folder', help="Folder containing tracklet directories with images")
     parser.add_argument('--output_folder', help="Folder to store features in, one file per tracklet")

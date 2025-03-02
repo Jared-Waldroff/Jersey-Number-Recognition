@@ -19,7 +19,7 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 
-from sam.sam import SAM
+from sam2.sam import SAM
 
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
