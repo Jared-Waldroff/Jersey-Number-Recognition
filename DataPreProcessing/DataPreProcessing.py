@@ -18,12 +18,15 @@ from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from Logger import CustomLogger
 
+# {DataPaths.ROOT_DATA_DIR.value}/pre_trained_models/reid/
+
 class DataPaths(Enum):
     ROOT_DATA_DIR = str(Path.cwd().parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
     TRAIN_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'train' / 'images')
+    PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent / 'data' / 'pre_trained_models')
     VALIDATION_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
-    TEMP_EXPERIMENT_DIR = str(Path.cwd() / 'experiments' / 'temp')
+    #TEMP_EXPERIMENT_DIR = str(Path.cwd() / 'experiments' / 'temp')
 
 class DataPreProcessing:
     def __init__(self):
@@ -35,6 +38,18 @@ class DataPreProcessing:
         logging.info(f"TEST_DATA_DIR: {DataPaths.TEST_DATA_DIR.value}")
         logging.info(f"VAL_DATA_DIR: {DataPaths.VALIDATION_DATA_DIR.value}")
         logging.info(f"Using device: {device}")
+        
+    def create_data_dirs(self):
+        # For every directory inside data_paths, create that directory if it does not already exist
+        for data_path in DataPaths:
+            if not os.path.exists(data_path.value):
+                os.makedirs(data_path.value)
+                logging.info(f"Created directory: {data_path.value}")
+        
+    def single_image_transform_pipeline(self, raw_image):
+        # Step 1: Crop the image to a fixed square dimension
+        # Step 2: 
+        pass
   
     def get_tracks(self, input_folder):
         # Ignore the .DS_Store files
