@@ -49,7 +49,7 @@ class CentralPipeline:
     self.tracklets = self.track_result[0]
     self.total_tracklets = self.track_result[1]
     
-  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None):
+  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
     # Obtain the tracklets
     # Iterate over the tracklets
     # And feed each image to the SingleImagePipeline
@@ -84,7 +84,12 @@ class CentralPipeline:
       for image in images:        
         # Instantiate a single image pipeline.
         # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
-        single_image_pipeline = SingleImagePipeline(image, model=ModelUniverse.DUMMY.value, silence_logs=True)
+        single_image_pipeline = SingleImagePipeline(
+          image,
+          model=ModelUniverse.DUMMY.value,
+          silence_logs=True,
+          display_transformed_image=display_transformed_image
+        )
         
         # This run_model call is where we actually do things.
         # It is the full end-to-end soccer net pipeline from main.py, but heavily modularized.
