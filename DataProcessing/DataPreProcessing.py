@@ -16,18 +16,17 @@ import matplotlib.pyplot as plt
 import cv2
 from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from Logger import CustomLogger
-
-# {DataPaths.ROOT_DATA_DIR.value}/pre_trained_models/reid/
+from DataProcessing.Logger import CustomLogger
 
 class DataPaths(Enum):
-    ROOT_DATA_DIR = str(Path.cwd().parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
+    ROOT_DATA_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
     TRAIN_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'train' / 'images')
-    PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent / 'data' / 'pre_trained_models')
-    REID_PRE_TRAINED = str(PRE_TRAINED_MODELS_DIR / 'reid')
+    PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent.parent / 'data' / 'pre_trained_models')
+    REID_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'reid')
     VALIDATION_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
-    #TEMP_EXPERIMENT_DIR = str(Path.cwd() / 'experiments' / 'temp')
+    PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
+    PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
 
 class DataPreProcessing:
     def __init__(self):
@@ -112,7 +111,7 @@ class DataPreProcessing:
             return (track, processed)
         return None
       
-    def generate_features(self, input_folder, output_folder, num_tracks=1400):
+    def generate_features(self, input_folder, output_folder, num_tracks):
         """
         
         """
@@ -129,7 +128,6 @@ class DataPreProcessing:
 
         # Get list of valid track directories (skip hidden files)
         tracks = self.get_tracks(DataPaths.TRAIN_DATA_DIR.value)[0:num_tracks]
-        
         processed_data = {}
 
         with ProcessPoolExecutor() as executor:
