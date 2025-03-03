@@ -17,7 +17,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
 
-from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths
+from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
 from ModelDevelopment.SingleImagePipeline import SingleImagePipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
@@ -49,7 +49,7 @@ class CentralPipeline:
     self.tracklets = self.track_result[0]
     self.total_tracklets = self.track_result[1]
     
-  def run_soccernet_pipeline(self, num_tracklets=None):
+  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None):
     # Obtain the tracklets
     # Iterate over the tracklets
     # And feed each image to the SingleImagePipeline
@@ -71,3 +71,26 @@ class CentralPipeline:
     
     # Instantiate a data augmentor using the data_dict we just created
     self.data_augmentor = DataAugmentation(data_dict)
+    
+    # Loop over every tracklet and feed every single image to the SingleImagePipeline
+    for tracklet in all_tracklets:
+      # Get the images for this tracklet
+      images = data_dict[tracklet]
+      
+      if num_images_per_tracklet is not None:
+        images = images[:num_images_per_tracklet]
+      
+      # Loop over every image in this tracklet
+      for image in images:
+        # Instantiate the SingleImagePipeline
+        
+        # Instantiate a single image pipeline
+        single_image_pipeline = SingleImagePipeline(image, model=ModelUniverse.DUMMY.value, silence_logs=True)
+    
+        # Pass the image through the pipeline
+        preprocessed_image = single_image_pipeline.preprocessed_image
+        
+        # Now, we need to pass this preprocessed image through the data augmentor
+        # And then through the model
+        # And then save the results
+        pass

@@ -18,6 +18,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from DataProcessing.Logger import CustomLogger
 
+class ModelUniverse(Enum):
+  REID_CENTROID = "REID"
+  LEGIBILITY_CLASSIFIER = "LEGIBILITY"
+  MOE = "MIXTURE_OF_EXPERTS"
+  RAC = "RETRIEVAL_AUGMENTED_CLASSIFICATION"
+  IMPROVED_STR = "CLIP4STR"
+  DUMMY = "DUMMY"
+
 class DataPaths(Enum):
     ROOT_DATA_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
@@ -31,12 +39,17 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
 
 class DataPreProcessing:
-    def __init__(self):
+    def __init__(self, silence_logs: bool=False):
+        self.silence_logs = silence_logs
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging = CustomLogger().get_logger()
-        logging.info("DataPreProcessing initialized. Universe of available data paths:")
-        for data_path in DataPaths:
-            logging.info(f"{data_path.name}: {data_path.value}")
+        
+        
+        if not self.silence_logs:
+            logging.info("DataPreProcessing initialized. Universe of available data paths:")
+            
+            for data_path in DataPaths:
+                logging.info(f"{data_path.name}: {data_path.value}")
         
     def create_data_dirs(self):
         # For every directory inside data_paths, create that directory if it does not already exist

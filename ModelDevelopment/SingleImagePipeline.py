@@ -1,14 +1,7 @@
-from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths
+from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
 from DataProcessing.Logger import CustomLogger
 from enum import Enum
-
-class Models(Enum):
-  REID_CENTROID = "REID"
-  LEGIBILITY_CLASSIFIER = "LEGIBILITY"
-  MOE = "MIXTURE_OF_EXPERTS"
-  RAC = "RETRIEVAL_AUGMENTED_CLASSIFICATION"
-  IMPROVED_STR = "CLIP4STR"
   
 class DataLabelsUniverse(Enum):
   TRAIN = "TRAIN"
@@ -17,10 +10,9 @@ class DataLabelsUniverse(Enum):
 
 class SingleImagePipeline:
   # The main entrypoint for our project pipeline
-  def __init__(self, raw_image, model: Models):
+  def __init__(self, raw_image, model: ModelUniverse, silence_logs: bool=False):
     self.raw_image = raw_image
-    self.data_preprocessor = DataPreProcessing()
-    self.data_augmentor = DataAugmentation()
+    self.data_preprocessor = DataPreProcessing(silence_logs=silence_logs)
     self.image_enhancer = ImageEnhancement()
     
     # Pass the raw_image through the preprocessing pipeline
