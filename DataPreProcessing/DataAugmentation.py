@@ -6,6 +6,7 @@ from PIL import Image, ImageFilter
 import torchvision.transforms as transforms
 from enum import Enum
 from PIL import ImageEnhance
+import numpy as np
 
 class LegalTransformations(Enum):
     rotation = 40
@@ -14,7 +15,7 @@ class LegalTransformations(Enum):
     contrast = (0.7, 1.0)
     stretch = (0.7, 1.3)
     horizontal_flip = True
-    patch_mask = (0.5, 16) # (fraction, patch_size)
+    patch_mask = (0.9, 16) # (fraction, patch_size)
 
 class DataAugmentation:
     def __init__(self, data, 
@@ -71,43 +72,41 @@ class DataAugmentation:
         Masks out (1 - keep_fraction) of the patches in the image by setting them to white.
         
         Args:
-            pil_img: a PIL Image in [0, 1] range
+            pil_img: a PIL Image in [0..255] range
             keep_fraction: fraction of patches to keep (0..1)
             patch_size: size of each patch in pixels
         Returns:
             A new PIL Image with some patches replaced by white.
         """
-        # Convert to a NumPy array (H, W, C), in [0..1]
-        img_array = np.array(pil_img, dtype=np.float32)
+        # 1) Convert to a float32 array in [0..1]
+        img_array = np.array(pil_img, dtype=np.float32) / 255.0
         height, width, _ = img_array.shape
         
-        # Number of patches along each dimension
+        # 2) Determine how many patches to keep
         patch_count_w = width // patch_size
         patch_count_h = height // patch_size
-        
-        # Flatten total patches
         total_patches = patch_count_w * patch_count_h
-        # Decide how many patches to keep
         keep_count = int(total_patches * keep_fraction)
-        
-        # Randomly select which patches to keep
+
+        # 3) Randomly select which patches to keep
         all_indices = list(range(total_patches))
         random.shuffle(all_indices)
         keep_indices = set(all_indices[:keep_count])
-        
-        # For each patch index that is *not* in keep_indices, set it to white
+
+        # 4) For each patch index *not* in keep_indices, set that patch to 1.0 (white in [0..1])
         idx = 0
         for py in range(patch_count_h):
             for px in range(patch_count_w):
                 if idx not in keep_indices:
-                    # White = [1, 1, 1]
                     y_start = py * patch_size
                     x_start = px * patch_size
+                    # White in [0..1] space
                     img_array[y_start:y_start+patch_size, x_start:x_start+patch_size, :] = 1.0
                 idx += 1
-        
-        # Convert back to PIL Image
+
+        # 5) Convert back to a standard [0..255] PIL image
         masked_pil = Image.fromarray((img_array * 255).astype(np.uint8))
+
         return masked_pil
 
     def augment_image(self, image, transformations_array):
