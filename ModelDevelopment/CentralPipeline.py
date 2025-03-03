@@ -85,6 +85,10 @@ class CentralPipeline:
         # Instantiate a single image pipeline.
         # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
         single_image_pipeline = SingleImagePipeline(image, model=ModelUniverse.DUMMY.value, silence_logs=True)
+        
+        # This run_model call is where we actually do things.
+        # It is the full end-to-end soccer net pipeline from main.py, but heavily modularized.
+        # This is also where we would adjust the pipeline with our own improvements.
         single_image_pipeline.run_model()
         
         # Now, we need to pass this preprocessed image through the data augmentor
