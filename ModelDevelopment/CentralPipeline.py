@@ -81,14 +81,11 @@ class CentralPipeline:
         images = images[:num_images_per_tracklet]
       
       # Loop over every image in this tracklet
-      for image in images:
-        # Instantiate the SingleImagePipeline
-        
-        # Instantiate a single image pipeline
+      for image in images:        
+        # Instantiate a single image pipeline.
+        # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
         single_image_pipeline = SingleImagePipeline(image, model=ModelUniverse.DUMMY.value, silence_logs=True)
-    
-        # Pass the image through the pipeline
-        preprocessed_image = single_image_pipeline.preprocessed_image
+        single_image_pipeline.run_model()
         
         # Now, we need to pass this preprocessed image through the data augmentor
         # And then through the model

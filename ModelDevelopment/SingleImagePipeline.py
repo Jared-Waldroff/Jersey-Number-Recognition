@@ -32,4 +32,5 @@ class SingleImagePipeline:
     pass
   
   def run_model(self):
+    self.logger.info("Running model on single image.")
     pass

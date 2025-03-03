@@ -44,7 +44,6 @@ class DataPreProcessing:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging = CustomLogger().get_logger()
         
-        
         if not self.silence_logs:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
             
@@ -64,6 +63,7 @@ class DataPreProcessing:
         #         1. Resizes + crops the image
         #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
         # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
+        # All of these steps come from main.py. Add them from there.
         pass
   
     def get_tracks(self, input_folder):
