@@ -251,7 +251,6 @@ class ImageEnhancement:
         pil_img = self.to_pil(denorm)
         
         # Enhance brightness, contrast, and sharpness using PIL's ImageEnhance.
-        from PIL import ImageEnhance
         enhancer = ImageEnhance.Brightness(pil_img)
         pil_img = enhancer.enhance(self.brightness_factor)
         
