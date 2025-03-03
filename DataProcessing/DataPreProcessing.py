@@ -41,7 +41,7 @@ class DataPaths(Enum):
 class DataPreProcessing:
     def __init__(self, silence_logs: bool=False):
         self.silence_logs = silence_logs
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging = CustomLogger().get_logger()
         
         if not self.silence_logs:
@@ -125,10 +125,26 @@ class DataPreProcessing:
       
     def generate_features(self, input_folder, output_folder, num_tracks, tracks=None):
         """
+        Generate preprocessed tensors (features) for each image in the specified tracklets.
         
+        Args:
+            input_folder (str): Path to the folder containing tracklet subdirectories.
+            output_folder (str): Path to the folder where processed results (if any) are stored.
+            num_tracks (int): Maximum number of tracklets to process.
+            tracks (list, optional): A list of tracklet names (subfolders) to process.
+                                    If None, tracks are obtained via self.get_tracks().
+        
+        Returns:
+            dict: A dictionary mapping tracklet name -> torch.Tensor of shape (N, C, H, W),
+                where N is the number of images in that tracklet.
+        
+        Notes:
+            - If self.device is 'cuda', this function processes images in a single thread
+            to avoid multiple processes contending for the GPU.
+            - If self.device is 'cpu', it uses ProcessPoolExecutor for CPU parallelism.
         """
-        use_cuda = False
-        model = None
+        # Decide if we're using GPU
+        use_cuda = (self.device.type == 'cuda')
 
         # Define validation transforms using torchvision
         val_transforms = transforms.Compose([
@@ -137,24 +153,40 @@ class DataPreProcessing:
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                 std=[0.229, 0.224, 0.225])
         ])
-        
+
+        # If no explicit track list is provided, gather from disk
         if tracks is None:
-            # Get list of valid track directories (skip hidden files)
-            logging.info("No tracklets provided to generate_features. Getting all tracklets.")
+            if not self.silence_logs:
+                logging.info("No tracklets provided to generate_features. Getting all tracklets.")
             tracks, max_track = self.get_tracks(input_folder)
-        
-        # We are guaranteed to have tracks at this point
+
+        # Limit to num_tracks
         tracks = tracks[:num_tracks]
-        
+
         processed_data = {}
 
-        # Should be using CUDA here, and default to CPU parallel computing if not
-        with ProcessPoolExecutor() as executor:
-            futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms): track for track in tracks}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets"):
-                result = future.result()
+        if use_cuda:
+            # Single-process approach on GPU
+            if not self.silence_logs:
+                logging.info("Using single-process GPU mode to generate features.")
+            for track in tqdm(tracks, desc="Loading tracklets (GPU)"):
+                result = self.process_single_track(track, input_folder, val_transforms, use_cuda=True)
                 if result is not None:
-                    track, features = result
-                    processed_data[track] = features
+                    track_name, features = result
+                    processed_data[track_name] = features
+        else:
+            # Multi-process CPU approach
+            if not self.silence_logs:
+                logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
+            with ProcessPoolExecutor() as executor:
+                futures = {
+                    executor.submit(self.process_single_track, track, input_folder, val_transforms, False): track
+                    for track in tracks
+                }
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets (CPU)"):
+                    result = future.result()
+                    if result is not None:
+                        track_name, features = result
+                        processed_data[track_name] = features
 
         return processed_data
