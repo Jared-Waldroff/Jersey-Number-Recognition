@@ -25,6 +25,7 @@ class DataPaths(Enum):
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
     TRAIN_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'train' / 'images')
     PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent / 'data' / 'pre_trained_models')
+    REID_PRE_TRAINED = str(PRE_TRAINED_MODELS_DIR / 'reid')
     VALIDATION_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     #TEMP_EXPERIMENT_DIR = str(Path.cwd() / 'experiments' / 'temp')
 
@@ -47,8 +48,11 @@ class DataPreProcessing:
                 logging.info(f"Created directory: {data_path.value}")
         
     def single_image_transform_pipeline(self, raw_image):
-        # Step 1: Crop the image to a fixed square dimension
-        # Step 2: 
+        # Step 1: Convert the image into a tensor
+        # Step 2: Pass through the centroid model that:
+        #         1. Resizes + crops the image
+        #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
+        # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
         pass
   
     def get_tracks(self, input_folder):
