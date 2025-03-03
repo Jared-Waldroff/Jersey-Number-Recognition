@@ -1,5 +1,6 @@
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
+from DataProcessing.Logger import CustomLogger
 from enum import Enum
 
 class Models(Enum):
@@ -24,6 +25,7 @@ class SingleImagePipeline:
     
     # Pass the raw_image through the preprocessing pipeline
     self.preprocessed_image = self.data_preprocessor.single_image_transform_pipeline(self.raw_image)
+    self.logger = CustomLogger().get_logger()
     
   def pass_through_reid(self):
     pass

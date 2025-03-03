@@ -1,6 +1,5 @@
 from enum import Enum
 from pathlib import Path
-import logging
 import time
 import torch
 import torch.nn as nn
@@ -16,28 +15,28 @@ import matplotlib.pyplot as plt
 import cv2
 from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import logging
 from DataProcessing.Logger import CustomLogger
 
 class DataPaths(Enum):
     ROOT_DATA_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
     TRAIN_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'train' / 'images')
+    CHALLENGE_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent.parent / 'data' / 'pre_trained_models')
     REID_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'reid')
-    VALIDATION_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
+    PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
+    PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
 
 class DataPreProcessing:
     def __init__(self):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging = CustomLogger().get_logger()
-        logging.info("DataPreProcessing initialized.")
-        logging.info(f"ROOT_DATA_DIR: {DataPaths.ROOT_DATA_DIR.value}")
-        logging.info(f"TRAIN_DATA_DIR: {DataPaths.TRAIN_DATA_DIR.value}")
-        logging.info(f"TEST_DATA_DIR: {DataPaths.TEST_DATA_DIR.value}")
-        logging.info(f"VAL_DATA_DIR: {DataPaths.VALIDATION_DATA_DIR.value}")
-        logging.info(f"Using device: {device}")
+        logging.info("DataPreProcessing initialized. Universe of available data paths:")
+        for data_path in DataPaths:
+            logging.info(f"{data_path.name}: {data_path.value}")
         
     def create_data_dirs(self):
         # For every directory inside data_paths, create that directory if it does not already exist
@@ -76,7 +75,7 @@ class DataPreProcessing:
         else:
             logging.warning("No tracklets found.")
             
-        return tracks
+        return tracks, max_track
   
     def process_single_track(self, track, input_folder, val_transforms, use_cuda=False):
         """
@@ -103,7 +102,7 @@ class DataPreProcessing:
                 # Simply store the tensor (add a batch dimension for later concatenation)
                 track_features.append(transformed.unsqueeze(0))
             except Exception as e:
-                logging.info(f"Error processing {img_full_path}: {e}")
+                self.logging.info(f"Error processing {img_full_path}: {e}")
                 continue
 
         if track_features:
@@ -111,7 +110,7 @@ class DataPreProcessing:
             return (track, processed)
         return None
       
-    def generate_features(self, input_folder, output_folder, num_tracks):
+    def generate_features(self, input_folder, output_folder, num_tracks, tracks=None):
         """
         
         """
@@ -125,14 +124,21 @@ class DataPreProcessing:
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                 std=[0.229, 0.224, 0.225])
         ])
-
-        # Get list of valid track directories (skip hidden files)
-        tracks = self.get_tracks(DataPaths.TRAIN_DATA_DIR.value)[0:num_tracks]
+        
+        if tracks is None:
+            # Get list of valid track directories (skip hidden files)
+            logging.info("No tracklets provided to generate_features. Getting all tracklets.")
+            tracks, max_track = self.get_tracks(input_folder)
+        
+        # We are guaranteed to have tracks at this point
+        tracks = tracks[:num_tracks]
+        
         processed_data = {}
 
+        # Should be using CUDA here, and default to CPU parallel computing if not
         with ProcessPoolExecutor() as executor:
             futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms): track for track in tracks}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing tracks"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets"):
                 result = future.result()
                 if result is not None:
                     track, features = result
