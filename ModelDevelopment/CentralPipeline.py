@@ -49,7 +49,7 @@ class CentralPipeline:
     self.tracklets = self.track_result[0]
     self.total_tracklets = self.track_result[1]
     
-  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None):
+  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
     # Obtain the tracklets
     # Iterate over the tracklets
     # And feed each image to the SingleImagePipeline
@@ -84,10 +84,19 @@ class CentralPipeline:
       for image in images:        
         # Instantiate a single image pipeline.
         # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
-        single_image_pipeline = SingleImagePipeline(image, model=ModelUniverse.DUMMY.value, silence_logs=True)
-        single_image_pipeline.run_model()
+        single_image_pipeline = SingleImagePipeline(
+          image,
+          model=ModelUniverse.DUMMY.value,
+          silence_logs=True,
+          display_transformed_image=display_transformed_image
+        )
         
-        # Now, we need to pass this preprocessed image through the data augmentor
-        # And then through the model
-        # And then save the results
-        pass
+        # This run_model call is where we actually do things.
+        # It is the full end-to-end soccer net pipeline from main.py, but heavily modularized.
+        # This is also where we would adjust the pipeline with our own improvements.
+        # Here, we have complete control on the image we are feeding.
+        # This is the perfect entry point to call the retrieval module.
+        # I.e. for RAC we would be asking: for this image, is it from an underrepresented class?
+        # If so, we would like to augment this class with more images during training,
+        # but during testing, fetch the retrieval module.
+        single_image_pipeline.run_model()
