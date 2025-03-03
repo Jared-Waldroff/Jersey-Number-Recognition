@@ -89,9 +89,9 @@ class CentralPipeline:
         # This run_model call is where we actually do things.
         # It is the full end-to-end soccer net pipeline from main.py, but heavily modularized.
         # This is also where we would adjust the pipeline with our own improvements.
+        # Here, we have complete control on the image we are feeding.
+        # This is the perfect entry point to call the retrieval module.
+        # I.e. for RAC we would be asking: for this image, is it from an underrepresented class?
+        # If so, we would like to augment this class with more images during training,
+        # but during testing, fetch the retrieval module.
         single_image_pipeline.run_model()
-        
-        # Now, we need to pass this preprocessed image through the data augmentor
-        # And then through the model
-        # And then save the results
-        pass
