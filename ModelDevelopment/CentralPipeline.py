@@ -86,10 +86,11 @@ class CentralPipeline:
         
       # NOTE: Check if output already exists and skip if it does
       output_file = os.path.join(output_folder, f"{tracklet}_features.npy")
-      if os.path.exists(output_file):
-          logger.info(f"Skipping {tracklet} - output already exists")
-          processed_count += 1
-          continue
+      # Do not do this because we append
+      # if os.path.exists(output_file):
+      #     self.logger.info(f"Skipping {tracklet} - output already exists")
+      #     processed_count += 1
+      #     continue
       
       # Loop over every image in this tracklet
       for image in images:        
@@ -103,7 +104,8 @@ class CentralPipeline:
           image,
           model=ModelUniverse.DUMMY.value,
           silence_logs=True,
-          display_transformed_image=display_transformed_image
+          display_transformed_image=display_transformed_image,
+          output_file=output_file
         )
         
         # This run_model call is where we actually do things.

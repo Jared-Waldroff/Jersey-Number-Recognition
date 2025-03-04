@@ -11,16 +11,17 @@ class DataLabelsUniverse(Enum):
 
 class SingleImagePipeline:
   # The main entrypoint for our project pipeline
-  def __init__(self, raw_image_tensor, model: ModelUniverse, silence_logs: bool=False, display_transformed_image: bool=False):
+  def __init__(self, raw_image_tensor, output_file, model: ModelUniverse, silence_logs: bool=False, display_transformed_image: bool=False):
     self.display_transformed_image = display_transformed_image
     self.raw_image_tensor = raw_image_tensor
+    self.output_file = output_file
     self.data_preprocessor = DataPreProcessing(silence_logs=silence_logs)
     self.image_enhancer = ImageEnhancement()
     
     self.logger = CustomLogger().get_logger()
     
     # Pass the raw_image_tensor through the preprocessing pipeline
-    self.preprocessed_image = self.data_preprocessor.single_image_transform_pipeline(self.raw_image_tensor)
+    self.preprocessed_image = self.data_preprocessor.single_image_transform_pipeline(self.raw_image_tensor, output_file=self.output_file)
     self.preprocessed_image = self.raw_image_tensor
     self.data_augmentation = DataAugmentation(self.preprocessed_image)
     

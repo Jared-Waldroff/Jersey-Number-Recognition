@@ -72,7 +72,7 @@ class DataPreProcessing:
         conf, weights = str(conf), str(weights)
         return conf, weights
     
-    def pass_through_reid_centroid(self, raw_image, model_version='res50_market'):
+    def pass_through_reid_centroid(self, raw_image, output_file, model_version='res50_market'):
         self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
@@ -92,6 +92,11 @@ class DataPreProcessing:
         # All images are already passed through val_transforms if they reached this point.
         #processed_image = Image.fromarray(raw_image)
         #processed_image = torch.stack([val_transforms(processed_image)])
+        
+        # NOTE: IMPORTANT! If shape is (C, H, W), unsqueeze(0) => (1, C, H, W)
+        if raw_image.dim() == 3:
+            raw_image = raw_image.unsqueeze(0)
+        
         with torch.no_grad():
             _, global_feat = model.backbone(raw_image.cuda() if self.use_cuda else raw_image)
             global_feat = model.bn(global_feat)
@@ -101,11 +106,11 @@ class DataPreProcessing:
         
         with open(output_file, 'wb') as f:
             np.save(f, processed_image)
-        logger.info(f"Saved features for tracklet with shape {np_feat.shape}")
+        logging.info(f"Saved features for tracklet with shape {processed_image.shape}")
             
         return processed_image
         
-    def single_image_transform_pipeline(self, raw_image, model_version='res50_market'):
+    def single_image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
         # Step 2: Pass through the centroid model that:
         #         1. Resizes + crops the image
         #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
@@ -115,7 +120,7 @@ class DataPreProcessing:
         # dict used to get model config and weights using model version
         
         # Step 1 tranform the image using the reid centroid model
-        processed_image = self.pass_through_reid_centroid(raw_image, model_version)
+        processed_image = self.pass_through_reid_centroid(raw_image, output_file, model_version)
 
   
     def get_tracks(self, input_folder):
