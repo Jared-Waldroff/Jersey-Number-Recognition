@@ -49,6 +49,8 @@ class CentralPipeline:
     self.tracklets = self.track_result[0]
     self.total_tracklets = self.track_result[1]
     
+    self.DISP_IMAGE_CAP = 1
+    
   def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
     # Obtain the tracklets
     # Iterate over the tracklets
@@ -72,6 +74,8 @@ class CentralPipeline:
     # Instantiate a data augmentor using the data_dict we just created
     self.data_augmentor = DataAugmentation(data_dict)
     
+    num_images = 0
+    
     # Loop over every tracklet and feed every single image to the SingleImagePipeline
     for tracklet in all_tracklets:
       # Get the images for this tracklet
@@ -84,6 +88,10 @@ class CentralPipeline:
       for image in images:        
         # Instantiate a single image pipeline.
         # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
+        
+        display_transformed_image = num_images <= self.DISP_IMAGE_CAP
+        num_images += 1
+        
         single_image_pipeline = SingleImagePipeline(
           image,
           model=ModelUniverse.DUMMY.value,
@@ -99,4 +107,4 @@ class CentralPipeline:
         # I.e. for RAC we would be asking: for this image, is it from an underrepresented class?
         # If so, we would like to augment this class with more images during training,
         # but during testing, fetch the retrieval module.
-        single_image_pipeline.run_model()
+        single_image_pipeline.run_model_chain()

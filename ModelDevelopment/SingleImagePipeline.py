@@ -11,17 +11,17 @@ class DataLabelsUniverse(Enum):
 
 class SingleImagePipeline:
   # The main entrypoint for our project pipeline
-  def __init__(self, raw_image, model: ModelUniverse, silence_logs: bool=False, display_transformed_image: bool=False):
+  def __init__(self, raw_image_tensor, model: ModelUniverse, silence_logs: bool=False, display_transformed_image: bool=False):
     self.display_transformed_image = display_transformed_image
-    self.raw_image = raw_image
+    self.raw_image_tensor = raw_image_tensor
     self.data_preprocessor = DataPreProcessing(silence_logs=silence_logs)
     self.image_enhancer = ImageEnhancement()
     
     self.logger = CustomLogger().get_logger()
     
-    # Pass the raw_image through the preprocessing pipeline
-    #self.preprocessed_image = self.data_preprocessor.single_image_transform_pipeline(self.raw_image)
-    self.preprocessed_image = self.raw_image
+    # Pass the raw_image_tensor through the preprocessing pipeline
+    self.preprocessed_image = self.data_preprocessor.single_image_transform_pipeline(self.raw_image_tensor)
+    self.preprocessed_image = self.raw_image_tensor
     self.data_augmentation = DataAugmentation(self.preprocessed_image)
     
     self.preprocessed_image = self.data_augmentation.denormalize(self.preprocessed_image)
@@ -33,9 +33,6 @@ class SingleImagePipeline:
       img = self.preprocessed_image.detach().cpu().permute(1, 2, 0).numpy().astype(float)
       plt.imshow(img)
       plt.show()
-
-  def pass_through_reid(self):
-    pass
   
   def pass_through_legibility_classifier(self):
     pass
@@ -43,9 +40,12 @@ class SingleImagePipeline:
   def pass_through_improved_str(self, layer_moe: bool=False, layer_rac: bool=False):
     pass
   
+  def pass_through_outlier_filter(self):
+    pass
+  
   def get_dataset_labels(self, type: DataLabelsUniverse):
     pass
   
-  def run_model(self):
+  def run_model_chain(self):
     self.logger.info("Running model on single image.")
     pass
