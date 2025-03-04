@@ -81,9 +81,28 @@ class DataPreProcessing:
         opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
         cfg.merge_from_list(opts)
         
-        #model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
+        # cfg.MODEL.PRETRAIN_PATH = "" inside that cfg...
+        model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
         
-        processed_image = cfg
+        if self.use_cuda:
+            model.to('cuda')
+            print("using GPU")
+        model.eval()
+        
+        processed_image = Image.fromarray(raw_image)
+        processed_image = torch.stack([val_transforms(processed_image)])
+        with torch.no_grad():
+            _, global_feat = model.backbone(processed_image.cuda() if self.use_cuda else processed_image)
+            global_feat = model.bn(global_feat)
+            
+        # Now save that that image
+        processed_image = global_feat.cpu().numpy().reshape(-1, )
+        
+        with open(output_file, 'wb') as f:
+            np.save(f, processed_image)
+        logger.info(f"Saved features for tracklet with shape {np_feat.shape}")
+            
+        return processed_image
         
     def single_image_transform_pipeline(self, raw_image, model_version='res50_market'):
         # Step 2: Pass through the centroid model that:
@@ -96,8 +115,6 @@ class DataPreProcessing:
         
         # Step 1 tranform the image using the reid centroid model
         processed_image = self.pass_through_reid_centroid(raw_image, model_version)
-        
-        print(processed_image)
 
   
     def get_tracks(self, input_folder):
@@ -142,9 +159,9 @@ class DataPreProcessing:
                 img = cv2.imread(img_full_path)
                 if img is None:
                     continue
-                input_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                processed_image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                 # Apply transforms
-                transformed = val_transforms(input_img)  # returns a tensor
+                transformed = val_transforms(processed_image)  # returns a tensor
 
                 # Simply store the tensor (add a batch dimension for later concatenation)
                 track_features.append(transformed.unsqueeze(0))

@@ -51,7 +51,7 @@ class CentralPipeline:
     
     self.DISP_IMAGE_CAP = 1
     
-  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
+  def run_soccernet_pipeline(self, output_folder, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
     # Obtain the tracklets
     # Iterate over the tracklets
     # And feed each image to the SingleImagePipeline
@@ -83,6 +83,13 @@ class CentralPipeline:
       
       if num_images_per_tracklet is not None:
         images = images[:num_images_per_tracklet]
+        
+      # NOTE: Check if output already exists and skip if it does
+      output_file = os.path.join(output_folder, f"{tracklet}_features.npy")
+      if os.path.exists(output_file):
+          logger.info(f"Skipping {tracklet} - output already exists")
+          processed_count += 1
+          continue
       
       # Loop over every image in this tracklet
       for image in images:        
