@@ -73,6 +73,24 @@ class DataPreProcessing:
         return conf, weights
     
     def pass_through_reid_centroid(self, raw_image, output_file, model_version='res50_market'):
+        """
+        Process a raw image (or batch) through the pre-trained centroid model.
+        This method:
+          - Loads the appropriate model using a config and checkpoint.
+          - Ensures input raw_image is 4D (N, C, H, W); if 3D, unsqueezes.
+          - Feeds the image through model.backbone and batch-norm layer.
+          - Flattens the global features per sample.
+          - Appends the feature vector to the output file.
+        
+        Args:
+            raw_image (torch.Tensor): Input tensor (C, H, W) or (N, C, H, W).
+            output_file (str): File path to save the features.
+            model_version (str): Version key to select model configuration.
+        
+        Returns:
+            np.ndarray: Flattened feature vector(s) with shape (N, d)
+        """
+        # Update the ver_to_specs dictionary:
         self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
@@ -81,46 +99,50 @@ class DataPreProcessing:
         opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
         cfg.merge_from_list(opts)
         
-        # cfg.MODEL.PRETRAIN_PATH = "" inside that cfg...
         model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
-        
         if self.use_cuda:
             model.to('cuda')
             print("using GPU")
         model.eval()
         
-        # All images are already passed through val_transforms if they reached this point.
-        #processed_image = Image.fromarray(raw_image)
-        #processed_image = torch.stack([val_transforms(processed_image)])
-        
-        # NOTE: IMPORTANT! If shape is (C, H, W), unsqueeze(0) => (1, C, H, W)
+        # Ensure input is 4D
         if raw_image.dim() == 3:
             raw_image = raw_image.unsqueeze(0)
         
         with torch.no_grad():
-            _, global_feat = model.backbone(raw_image.cuda() if self.use_cuda else raw_image)
+            input_tensor = raw_image.cuda() if self.use_cuda else raw_image
+            _, global_feat = model.backbone(input_tensor)
             global_feat = model.bn(global_feat)
-            
-        # Now save that that image
-        processed_image = global_feat.cpu().numpy().reshape(-1, )
         
-        with open(output_file, 'wb') as f:
-            np.save(f, processed_image)
+        # global_feat shape: (N, d). We keep the batch dimension.
+        processed_image = global_feat.cpu().numpy()  # shape: (N, d)
+        
+        # Append new features to output_file:
+        # (For production, consider using an HDF5 approach.)
+        if os.path.exists(output_file):
+            existing = np.load(output_file, allow_pickle=True)
+            combined = np.concatenate([existing, processed_image], axis=0)
+            np.save(output_file, combined)
+        else:
+            np.save(output_file, processed_image)
         logging.info(f"Saved features for tracklet with shape {processed_image.shape}")
             
         return processed_image
-        
+
     def single_image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
-        # Step 2: Pass through the centroid model that:
-        #         1. Resizes + crops the image
-        #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
-        # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
-        # All of these steps come from main.py. Add them from there.
+        """
+        Process a single raw image through the centroid model pipeline.
         
-        # dict used to get model config and weights using model version
+        Steps:
+          1. Accept a raw image (tensor, file path, or PIL Image) and convert it to a normalized tensor.
+          2. Pass the tensor through the centroid model for resizing, cropping, and keyframe identification.
+          3. Save the processed features to output_file.
         
-        # Step 1 tranform the image using the reid centroid model
+        Returns:
+          np.ndarray: The flattened feature vector for the input image.
+        """
         processed_image = self.pass_through_reid_centroid(raw_image, output_file, model_version)
+        return processed_image
 
   
     def get_tracks(self, input_folder):
