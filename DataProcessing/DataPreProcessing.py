@@ -17,9 +17,11 @@ from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from DataProcessing.Logger import CustomLogger
-from datasets.transforms import ReidTransforms
-import configuration import as cfg
-from train_ctl_model import CTLModel
+from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
+from reid.CentroidsReidRepo.train_ctl_model import CTLModel
+
+from config import cfg
+#import configuration import as cfg
 
 class ModelUniverse(Enum):
   REID_CENTROID = "REID"
@@ -68,15 +70,8 @@ class DataPreProcessing:
         conf, weights = ver_to_specs[model_version]
         conf, weights = str(conf), str(weights)
         return conf, weights
-        
-    def single_image_transform_pipeline(self, raw_image, model_version='res50_market'):
-        # Step 2: Pass through the centroid model that:
-        #         1. Resizes + crops the image
-        #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
-        # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
-        # All of these steps come from main.py. Add them from there.
-        
-        # dict used to get model config and weights using model version
+    
+    def pass_through_reid_centroid(self, raw_image, model_version='res50_market'):
         ver_to_specs = {}
         ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
@@ -86,7 +81,24 @@ class DataPreProcessing:
         opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
         cfg.merge_from_list(opts)
         
-        model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
+        #model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
+        
+        processed_image = cfg
+        
+    def single_image_transform_pipeline(self, raw_image, model_version='res50_market'):
+        # Step 2: Pass through the centroid model that:
+        #         1. Resizes + crops the image
+        #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
+        # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
+        # All of these steps come from main.py. Add them from there.
+        
+        # dict used to get model config and weights using model version
+        
+        # Step 1 tranform the image using the reid centroid model
+        processed_image = self.pass_through_reid_centroid(raw_image, model_version)
+        
+        print(processed_image)
+
   
     def get_tracks(self, input_folder):
         # Ignore the .DS_Store files
