@@ -48,22 +48,22 @@ def setup_reid(root):
         models_folder_path = os.path.join(rep_path, repo_name, "models")
         os.system(f"mkdir {models_folder_path}")
 
-        url = "https://drive.google.com/uc?export=download&id=1w9yzdP_5oJppGIM4gs3cETyLujanoHK8&confirm=t&uuid=fed3cb8a-1fad-40bd-8922-c41ededc93ae&at=ALgDtsxiC0WTza4g47gqC5VPyWg4:1679009047787"
-        save_path = os.path.join(models_folder_path, "dukemtmcreid_resnet50_256_128_epoch_120.ckpt")
-        urllib.request.urlretrieve(url, save_path)
+        # url = "https://drive.google.com/uc?export=download&id=1w9yzdP_5oJppGIM4gs3cETyLujanoHK8&confirm=t&uuid=fed3cb8a-1fad-40bd-8922-c41ededc93ae&at=ALgDtsxiC0WTza4g47gqC5VPyWg4:1679009047787"
+        # save_path = os.path.join(models_folder_path, "dukemtmcreid_resnet50_256_128_epoch_120.ckpt")
+        # urllib.request.urlretrieve(url, save_path)
 
-        url = "https://drive.google.com/uc?export=download&id=1ZFywKEytpyNocUQd2APh2XqTe8X0HMom&confirm=t&uuid=450bb8b7-b3d0-4465-b0c9-bb6f066b205e&at=ALgDtswylGfYgY71u8ZmWx4CfhJX:1679008688985"
-        save_path = os.path.join(models_folder_path, "market1501_resnet50_256_128_epoch_120.ckpt")
-        urllib.request.urlretrieve(url, save_path)
+        # url = "https://drive.google.com/uc?export=download&id=1ZFywKEytpyNocUQd2APh2XqTe8X0HMom&confirm=t&uuid=450bb8b7-b3d0-4465-b0c9-bb6f066b205e&at=ALgDtswylGfYgY71u8ZmWx4CfhJX:1679008688985"
+        # save_path = os.path.join(models_folder_path, "market1501_resnet50_256_128_epoch_120.ckpt")
+        # urllib.request.urlretrieve(url, save_path)
 
-    if not env_name in get_conda_envs():
-        make_conda_env(env_name, libs="python=3.8")
-        cwd = os.getcwd()
-        os.chdir(os.path.join(rep_path, repo_name))
-        os.system(f"conda run --live-stream -n {env_name} conda install --name {env_name} pip")
-        os.system(f"conda run --live-stream -n {env_name} pip install -r requirements.txt")
+    # if not env_name in get_conda_envs():
+    #     make_conda_env(env_name, libs="python=3.8")
+    #     cwd = os.getcwd()
+    #     os.chdir(os.path.join(rep_path, repo_name))
+    #     os.system(f"conda run --live-stream -n {env_name} conda install --name {env_name} pip")
+    #     os.system(f"conda run --live-stream -n {env_name} pip install -r requirements.txt")
 
-        os.chdir(cwd)
+    #     os.chdir(cwd)
 
 # clone and install vitpose
 # download the model

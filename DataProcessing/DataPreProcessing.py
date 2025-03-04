@@ -17,6 +17,10 @@ from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from DataProcessing.Logger import CustomLogger
+from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
+from reid.CentroidsReidRepo.train_ctl_model import CTLModel
+from reid.CentroidsReidRepo.config.defaults import _C as cfg
+#import configuration import as cfg
 
 class ModelUniverse(Enum):
   REID_CENTROID = "REID"
@@ -33,6 +37,9 @@ class DataPaths(Enum):
     CHALLENGE_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent.parent / 'data' / 'pre_trained_models')
     REID_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'reid')
+    REID_MODEL_1 = str(Path(REID_PRE_TRAINED) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
+    REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
+    REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
@@ -42,7 +49,10 @@ class DataPreProcessing:
     def __init__(self, silence_logs: bool=False):
         self.silence_logs = silence_logs
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.use_cuda = (self.device.type == 'cuda')
         logging = CustomLogger().get_logger()
+        
+        self.ver_to_specs = {}
         
         if not self.silence_logs:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
@@ -56,15 +66,62 @@ class DataPreProcessing:
             if not os.path.exists(data_path.value):
                 os.makedirs(data_path.value)
                 logging.info(f"Created directory: {data_path.value}")
+                
+    def get_specs_from_version(self, model_version):
+        conf, weights = self.ver_to_specs[model_version]
+        conf, weights = str(conf), str(weights)
+        return conf, weights
+    
+    def pass_through_reid_centroid(self, raw_image, output_file, model_version='res50_market'):
+        self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
+        self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
-    def single_image_transform_pipeline(self, raw_image):
-        # Step 1: Convert the image into a tensor
+        CONFIG_FILE, MODEL_FILE = self.get_specs_from_version(model_version)
+        cfg.merge_from_file(CONFIG_FILE)
+        opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
+        cfg.merge_from_list(opts)
+        
+        # cfg.MODEL.PRETRAIN_PATH = "" inside that cfg...
+        model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
+        
+        if self.use_cuda:
+            model.to('cuda')
+            print("using GPU")
+        model.eval()
+        
+        # All images are already passed through val_transforms if they reached this point.
+        #processed_image = Image.fromarray(raw_image)
+        #processed_image = torch.stack([val_transforms(processed_image)])
+        
+        # NOTE: IMPORTANT! If shape is (C, H, W), unsqueeze(0) => (1, C, H, W)
+        if raw_image.dim() == 3:
+            raw_image = raw_image.unsqueeze(0)
+        
+        with torch.no_grad():
+            _, global_feat = model.backbone(raw_image.cuda() if self.use_cuda else raw_image)
+            global_feat = model.bn(global_feat)
+            
+        # Now save that that image
+        processed_image = global_feat.cpu().numpy().reshape(-1, )
+        
+        with open(output_file, 'wb') as f:
+            np.save(f, processed_image)
+        logging.info(f"Saved features for tracklet with shape {processed_image.shape}")
+            
+        return processed_image
+        
+    def single_image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
         # Step 2: Pass through the centroid model that:
         #         1. Resizes + crops the image
         #         2. Does keyframe identification by applying a light ViT to hone in on the player's back
         # Step 3: Call the enhance_image function from DataAugmentation to further enhance this image
         # All of these steps come from main.py. Add them from there.
-        pass
+        
+        # dict used to get model config and weights using model version
+        
+        # Step 1 tranform the image using the reid centroid model
+        processed_image = self.pass_through_reid_centroid(raw_image, output_file, model_version)
+
   
     def get_tracks(self, input_folder):
         # Ignore the .DS_Store files
@@ -90,7 +147,7 @@ class DataPreProcessing:
             
         return tracks, max_track
   
-    def process_single_track(self, track, input_folder, val_transforms, use_cuda=False):
+    def process_single_track(self, track, input_folder, val_transforms):
         """
         Process one tracklet (i.e. one directory of images) and return a tuple (track, processed_data)
         where processed_data is either a tensor (if load_only) or a numpy array of features.
@@ -108,9 +165,9 @@ class DataPreProcessing:
                 img = cv2.imread(img_full_path)
                 if img is None:
                     continue
-                input_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                processed_image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                 # Apply transforms
-                transformed = val_transforms(input_img)  # returns a tensor
+                transformed = val_transforms(processed_image)  # returns a tensor
 
                 # Simply store the tensor (add a batch dimension for later concatenation)
                 track_features.append(transformed.unsqueeze(0))
@@ -123,7 +180,7 @@ class DataPreProcessing:
             return (track, processed)
         return None
       
-    def generate_features(self, input_folder, output_folder, num_tracks, tracks=None):
+    def generate_features(self, input_folder, output_folder, num_tracks, tracks: bool=None, classic_transform: bool=False):
         """
         Generate preprocessed tensors (features) for each image in the specified tracklets.
         
@@ -143,16 +200,17 @@ class DataPreProcessing:
             to avoid multiple processes contending for the GPU.
             - If self.device is 'cpu', it uses ProcessPoolExecutor for CPU parallelism.
         """
-        # Decide if we're using GPU
-        use_cuda = (self.device.type == 'cuda')
-
-        # Define validation transforms using torchvision
-        val_transforms = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                std=[0.229, 0.224, 0.225])
-        ])
+        if classic_transform:
+            # Define validation transforms using torchvision
+            val_transforms = transforms.Compose([
+                transforms.Resize((256, 256)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])
+            ])
+        else:
+            transforms_base = ReidTransforms(cfg)
+            val_transforms = transforms_base.build_transforms(is_train=False)
 
         # If no explicit track list is provided, gather from disk
         if tracks is None:
@@ -165,12 +223,12 @@ class DataPreProcessing:
 
         processed_data = {}
 
-        if use_cuda:
+        if self.use_cuda:
             # Single-process approach on GPU
             if not self.silence_logs:
                 logging.info("Using single-process GPU mode to generate features.")
             for track in tqdm(tracks, desc="Loading tracklets (GPU)"):
-                result = self.process_single_track(track, input_folder, val_transforms, use_cuda=True)
+                result = self.process_single_track(track, input_folder, val_transforms)
                 if result is not None:
                     track_name, features = result
                     processed_data[track_name] = features
@@ -180,7 +238,7 @@ class DataPreProcessing:
                 logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
             with ProcessPoolExecutor() as executor:
                 futures = {
-                    executor.submit(self.process_single_track, track, input_folder, val_transforms, False): track
+                    executor.submit(self.process_single_track, track, input_folder, val_transforms): track
                     for track in tracks
                 }
                 for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets (CPU)"):

@@ -21,7 +21,7 @@ from tqdm import tqdm
 import cv2
 from PIL import Image
 
-from config import cfg
+from reid.CentroidsReidRepo.config.defaults import _C as cfg
 from train_ctl_model import CTLModel
 
 from datasets.transforms import ReidTransforms

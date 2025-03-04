@@ -49,7 +49,9 @@ class CentralPipeline:
     self.tracklets = self.track_result[0]
     self.total_tracklets = self.track_result[1]
     
-  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
+    self.DISP_IMAGE_CAP = 1
+    
+  def run_soccernet_pipeline(self, output_folder, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
     # Obtain the tracklets
     # Iterate over the tracklets
     # And feed each image to the SingleImagePipeline
@@ -72,6 +74,8 @@ class CentralPipeline:
     # Instantiate a data augmentor using the data_dict we just created
     self.data_augmentor = DataAugmentation(data_dict)
     
+    num_images = 0
+    
     # Loop over every tracklet and feed every single image to the SingleImagePipeline
     for tracklet in all_tracklets:
       # Get the images for this tracklet
@@ -79,16 +83,29 @@ class CentralPipeline:
       
       if num_images_per_tracklet is not None:
         images = images[:num_images_per_tracklet]
+        
+      # NOTE: Check if output already exists and skip if it does
+      output_file = os.path.join(output_folder, f"{tracklet}_features.npy")
+      # Do not do this because we append
+      # if os.path.exists(output_file):
+      #     self.logger.info(f"Skipping {tracklet} - output already exists")
+      #     processed_count += 1
+      #     continue
       
       # Loop over every image in this tracklet
       for image in images:        
         # Instantiate a single image pipeline.
         # As part of instantiation, that image is pre-processed internally within SingleImagePipeline.
+        
+        display_transformed_image = num_images <= self.DISP_IMAGE_CAP
+        num_images += 1
+        
         single_image_pipeline = SingleImagePipeline(
           image,
           model=ModelUniverse.DUMMY.value,
           silence_logs=True,
-          display_transformed_image=display_transformed_image
+          display_transformed_image=display_transformed_image,
+          output_file=output_file
         )
         
         # This run_model call is where we actually do things.
@@ -99,4 +116,4 @@ class CentralPipeline:
         # I.e. for RAC we would be asking: for this image, is it from an underrepresented class?
         # If so, we would like to augment this class with more images during training,
         # but during testing, fetch the retrieval module.
-        single_image_pipeline.run_model()
+        single_image_pipeline.run_model_chain()
