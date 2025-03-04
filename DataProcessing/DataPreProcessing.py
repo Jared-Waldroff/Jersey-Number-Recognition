@@ -89,10 +89,11 @@ class DataPreProcessing:
             print("using GPU")
         model.eval()
         
-        processed_image = Image.fromarray(raw_image)
-        processed_image = torch.stack([val_transforms(processed_image)])
+        # All images are already passed through val_transforms if they reached this point.
+        #processed_image = Image.fromarray(raw_image)
+        #processed_image = torch.stack([val_transforms(processed_image)])
         with torch.no_grad():
-            _, global_feat = model.backbone(processed_image.cuda() if self.use_cuda else processed_image)
+            _, global_feat = model.backbone(raw_image.cuda() if self.use_cuda else raw_image)
             global_feat = model.bn(global_feat)
             
         # Now save that that image
