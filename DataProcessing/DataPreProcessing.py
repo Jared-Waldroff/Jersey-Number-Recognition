@@ -19,8 +19,7 @@ import logging
 from DataProcessing.Logger import CustomLogger
 from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
 from reid.CentroidsReidRepo.train_ctl_model import CTLModel
-
-from config import cfg
+from reid.CentroidsReidRepo.config.defaults import _C as cfg
 #import configuration import as cfg
 
 class ModelUniverse(Enum):
@@ -38,9 +37,9 @@ class DataPaths(Enum):
     CHALLENGE_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent.parent / 'data' / 'pre_trained_models')
     REID_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'reid')
-    REID_MODEL_1 = str(Path(PRE_TRAINED_MODELS_DIR) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
-    REID_MODEL_2 = str(Path(PRE_TRAINED_MODELS_DIR) / 'market1501_resnet50_256_128_epoch_120.ckpt')
-    REID_CONFIG_YAML = str(Path(PRE_TRAINED_MODELS_DIR) / 'configs' / '256_resnet50.yml')
+    REID_MODEL_1 = str(Path(REID_PRE_TRAINED) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
+    REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
+    REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
@@ -52,6 +51,8 @@ class DataPreProcessing:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
         logging = CustomLogger().get_logger()
+        
+        self.ver_to_specs = {}
         
         if not self.silence_logs:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
@@ -67,14 +68,13 @@ class DataPreProcessing:
                 logging.info(f"Created directory: {data_path.value}")
                 
     def get_specs_from_version(self, model_version):
-        conf, weights = ver_to_specs[model_version]
+        conf, weights = self.ver_to_specs[model_version]
         conf, weights = str(conf), str(weights)
         return conf, weights
     
     def pass_through_reid_centroid(self, raw_image, model_version='res50_market'):
-        ver_to_specs = {}
-        ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
-        ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
+        self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
+        self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
         CONFIG_FILE, MODEL_FILE = self.get_specs_from_version(model_version)
         cfg.merge_from_file(CONFIG_FILE)
