@@ -152,22 +152,20 @@ class DataPreProcessing:
 
   
     def get_tracks(self, input_folder):
-        # Ignore the .DS_Store files
+        # Ignore hidden files
         tracks = [t for t in os.listdir(input_folder) if not t.startswith('.')]
+        # Sort tracks numerically using the first sequence of digits in the name
+        tracks = sorted(tracks, key=lambda t: int(re.search(r'\d+', t).group()) if re.search(r'\d+', t) else -1)
         logging.info(tracks[0:10])
 
-        # Extract numerical part and convert to integer for comparison
+        # Extract numerical part for min and max calculations
         def extract_number(track):
-            match = re.search(r'(\d+)', track)  # Extracts the first sequence of digits
-            if match:
-                return int(match.group(1))
-            return -1  # Provide a default value if no number is found
+            match = re.search(r'(\d+)', track)
+            return int(match.group(1)) if match else -1
 
-        # Find min and max tracklets based on the extracted number
         if tracks:
             min_track = min(tracks, key=extract_number)
             max_track = max(tracks, key=extract_number)
-
             logging.info(f"Min tracklet: {min_track}")
             logging.info(f"Max tracklet: {max_track}")
         else:
