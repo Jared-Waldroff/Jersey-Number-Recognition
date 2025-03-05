@@ -76,27 +76,33 @@ class CentralPipeline:
         if num_images_per_tracklet is not None:
             images = images[:num_images_per_tracklet]
             
+        tracklet_data_file_stub = f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"
+            
         if not self.use_cache:
           # User does not want to use any cached tracklet feature data.
           # Delete the cached data if it exists before proceeding
-          tracklet_feature_file = os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}")
+          tracklet_feature_file = os.path.join(self.output_processed_data_path, tracklet_data_file_stub)
           if os.path.exists(tracklet_feature_file):
             os.remove(tracklet_feature_file)
             self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
         
         # For each tracklet, choose to process the entire batch or each image individually
+        # Regardless of whether we do tracklet-level processing or image-level processing,
+        # There will only be one feature file per tracklet. The difference is if we read into memory the data file n times (n = number of images in tracklet)
+        # or if we only do it once (because we pass the whole tracklet batch). This is excellent for decoupling production code versus research.
+        # For research, we can afford to read/write n times because n may only be 1 or 2 as we just want to test the pipeline on a few images.
         if self.single_image_pipeline:
             # Process each image separately
             for image in images:
                 display_flag = num_images <= 1
                 num_images += 1
-                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"),
+                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                               model=ModelUniverse.DUMMY.value, silence_logs=True,
                                               display_transformed_image_sample=display_flag)
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the tracklet
-            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"),
+            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                           model=ModelUniverse.DUMMY.value, silence_logs=True,
                                           display_transformed_image_sample=self.display_transformed_image_sample)
             pipeline.run_model_chain()
