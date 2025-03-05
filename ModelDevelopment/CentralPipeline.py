@@ -17,7 +17,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
 
-from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse
+from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
@@ -38,6 +38,12 @@ class CentralPipeline:
     self.num_image_samples = num_image_samples
     self.use_cache = use_cache
     
+    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
+    self.image_enhancer = ImageEnhancement()
+    
+    # When the pipeline is first instantiated, ensure the use has all the necessary paths
+    self.data_preprocessor.create_data_dirs()
+    
     # Check if the input directory exists. If not, tell the user.
     if not os.path.exists(self.input_data_path):
       raise FileNotFoundError(f"Input data path does not exist: {self.input_data_path}")
@@ -46,8 +52,6 @@ class CentralPipeline:
     if not os.path.exists(self.output_processed_data_path):
       os.makedirs(self.output_processed_data_path)
     
-    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
-    self.image_enhancer = ImageEnhancement()
     self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
     self.logger = CustomLogger().get_logger()
     
@@ -76,7 +80,7 @@ class CentralPipeline:
         if num_images_per_tracklet is not None:
             images = images[:num_images_per_tracklet]
             
-        tracklet_data_file_stub = f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"
+        tracklet_data_file_stub = f"{tracklet}{CommonConstants.FEATURE_DATA_FILE_POSTFIX.value}"
             
         if not self.use_cache:
           # User does not want to use any cached tracklet feature data.

@@ -44,6 +44,8 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
+
+class CommonConstants(Enum):
     FEATURE_DATA_FILE_POSTFIX = "_features.npy"
 
 class DataPreProcessing:
@@ -66,10 +68,14 @@ class DataPreProcessing:
                 logging.info(f"{data_path.name}: {data_path.value}")
         
     def create_data_dirs(self):
-        # For every directory inside data_paths, create that directory if it does not already exist
+        # For every entry in DataPaths, create a directory if it doesn't exist,
+        # but skip entries that appear to be files (i.e. have a non-empty suffix).
         for data_path in DataPaths:
-            if not os.path.exists(data_path.value):
-                os.makedirs(data_path.value)
+            path = Path(data_path.value)
+            if path.suffix:  # if there's a file extension, skip creating
+                continue
+            if not path.exists():
+                os.makedirs(path)
                 logging.info(f"Created directory: {data_path.value}")
                 
     def get_specs_from_version(self, model_version):
