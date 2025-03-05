@@ -46,12 +46,16 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
 
 class DataPreProcessing:
-    def __init__(self, silence_logs: bool=False):
+    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, silence_logs: bool=False):
+        self.display_transformed_image_sample = display_transformed_image_sample
+        self.num_image_samples = num_image_samples
         self.silence_logs = silence_logs
+        
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
         logging = CustomLogger().get_logger()
-        
+
+        self.num_images_processed = 0
         self.ver_to_specs = {}
         
         if not self.silence_logs:
@@ -129,7 +133,7 @@ class DataPreProcessing:
             
         return processed_image
 
-    def single_image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
+    def image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
         """
         Process a single raw image through the centroid model pipeline.
         

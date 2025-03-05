@@ -23,7 +23,14 @@ from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUn
 from DataProcessing.Logger import CustomLogger
 
 class CentralPipeline:
-  def __init__(self, input_data_path: DataPaths, output_processed_data_path: DataPaths, single_image_pipeline: bool=True):
+  def __init__(self,
+               input_data_path: DataPaths,
+               output_processed_data_path: DataPaths,
+               single_image_pipeline: bool=True,
+               display_transformed_image_sample: bool=False,
+               num_image_samples: int=1
+               ):
+    self.display_transformed_image_sample = display_transformed_image_sample
     self.input_data_path = input_data_path
     self.output_processed_data_path = output_processed_data_path
     self.single_image_pipeline = single_image_pipeline
@@ -36,7 +43,7 @@ class CentralPipeline:
     if not os.path.exists(self.output_processed_data_path):
       os.makedirs(self.output_processed_data_path)
     
-    self.data_preprocessor = DataPreProcessing()
+    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=num_image_samples)
     self.image_enhancer = ImageEnhancement()
     self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
     self.logger = CustomLogger().get_logger()
@@ -52,7 +59,7 @@ class CentralPipeline:
     
     self.DISP_IMAGE_CAP = 1
     
-  def run_soccernet_pipeline(self, output_folder, num_tracklets=None, num_images_per_tracklet=None, display_transformed_image: bool=False):
+  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None):
     self.logger.info("Running the SoccerNet pipeline.")
     if num_tracklets is None:
         num_tracklets = self.total_tracklets
@@ -72,13 +79,13 @@ class CentralPipeline:
             for image in images:
                 display_flag = num_images <= 1
                 num_images += 1
-                pipeline = ImageBatchPipeline(image, output_file=os.path.join(output_folder, f"{tracklet}_features.npy"),
+                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}_features.npy"),
                                               model=ModelUniverse.DUMMY.value, silence_logs=True,
-                                              display_transformed_image=display_flag)
+                                              display_transformed_image_sample=display_flag)
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the tracklet
-            pipeline = ImageBatchPipeline(images, output_file=os.path.join(output_folder, f"{tracklet}_features.npy"),
+            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}_features.npy"),
                                           model=ModelUniverse.DUMMY.value, silence_logs=True,
-                                          display_transformed_image=display_transformed_image)
+                                          display_transformed_image_sample=self.display_transformed_image_sample)
             pipeline.run_model_chain()
