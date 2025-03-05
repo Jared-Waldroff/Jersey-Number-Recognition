@@ -45,13 +45,20 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
 
+class CommonConstants(Enum):
+    FEATURE_DATA_FILE_POSTFIX = "_features.npy"
+
 class DataPreProcessing:
-    def __init__(self, silence_logs: bool=False):
+    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, silence_logs: bool=False):
+        self.display_transformed_image_sample = display_transformed_image_sample
+        self.num_image_samples = num_image_samples
         self.silence_logs = silence_logs
+        
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
         logging = CustomLogger().get_logger()
-        
+
+        self.num_images_processed = 0
         self.ver_to_specs = {}
         
         if not self.silence_logs:
@@ -61,10 +68,14 @@ class DataPreProcessing:
                 logging.info(f"{data_path.name}: {data_path.value}")
         
     def create_data_dirs(self):
-        # For every directory inside data_paths, create that directory if it does not already exist
+        # For every entry in DataPaths, create a directory if it doesn't exist,
+        # but skip entries that appear to be files (i.e. have a non-empty suffix).
         for data_path in DataPaths:
-            if not os.path.exists(data_path.value):
-                os.makedirs(data_path.value)
+            path = Path(data_path.value)
+            if path.suffix:  # if there's a file extension, skip creating
+                continue
+            if not path.exists():
+                os.makedirs(path)
                 logging.info(f"Created directory: {data_path.value}")
                 
     def get_specs_from_version(self, model_version):
@@ -118,7 +129,8 @@ class DataPreProcessing:
         processed_image = global_feat.cpu().numpy()  # shape: (N, d)
         
         # Append new features to output_file:
-        # (For production, consider using an HDF5 approach.)
+        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
+        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
         if os.path.exists(output_file):
             existing = np.load(output_file, allow_pickle=True)
             combined = np.concatenate([existing, processed_image], axis=0)
@@ -129,7 +141,7 @@ class DataPreProcessing:
             
         return processed_image
 
-    def single_image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
+    def image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
         """
         Process a single raw image through the centroid model pipeline.
         
@@ -146,22 +158,20 @@ class DataPreProcessing:
 
   
     def get_tracks(self, input_folder):
-        # Ignore the .DS_Store files
+        # Ignore hidden files
         tracks = [t for t in os.listdir(input_folder) if not t.startswith('.')]
+        # Sort tracks numerically using the first sequence of digits in the name
+        tracks = sorted(tracks, key=lambda t: int(re.search(r'\d+', t).group()) if re.search(r'\d+', t) else -1)
         logging.info(tracks[0:10])
 
-        # Extract numerical part and convert to integer for comparison
+        # Extract numerical part for min and max calculations
         def extract_number(track):
-            match = re.search(r'(\d+)', track)  # Extracts the first sequence of digits
-            if match:
-                return int(match.group(1))
-            return -1  # Provide a default value if no number is found
+            match = re.search(r'(\d+)', track)
+            return int(match.group(1)) if match else -1
 
-        # Find min and max tracklets based on the extracted number
         if tracks:
             min_track = min(tracks, key=extract_number)
             max_track = max(tracks, key=extract_number)
-
             logging.info(f"Min tracklet: {min_track}")
             logging.info(f"Max tracklet: {max_track}")
         else:
