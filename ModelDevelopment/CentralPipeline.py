@@ -100,13 +100,15 @@ class CentralPipeline:
             for image in images:
                 display_flag = num_images <= 1
                 num_images += 1
-                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
+                pipeline = ImageBatchPipeline(raw_image_tensor_batch=image,
+                                              output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                               model=ModelUniverse.DUMMY.value, silence_logs=True,
                                               display_transformed_image_sample=display_flag)
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the tracklet
-            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
+            pipeline = ImageBatchPipeline(raw_image_tensor_batch=images,
+                                          output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                           model=ModelUniverse.DUMMY.value, silence_logs=True,
                                           display_transformed_image_sample=self.display_transformed_image_sample)
             pipeline.run_model_chain()

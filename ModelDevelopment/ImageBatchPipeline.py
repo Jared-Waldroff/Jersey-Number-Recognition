@@ -18,7 +18,12 @@ class ImageBatchPipeline:
     This class is dedicated for running models on already pre-processed data.
     Image pre-processing is handled as part of class instantiation by implicilty instantiating an ImageFeatureTransfromPipeline class
     """
-    def __init__(self, raw_image_tensor_batch, output_feature_data_file, model: ModelUniverse, silence_logs: bool=False, display_transformed_image_sample: bool=False):
+    def __init__(self,
+                raw_image_tensor_batch,
+                output_feature_data_file,
+                model: ModelUniverse,
+                display_transformed_image_sample: bool=False,
+                silence_logs: bool=False):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.raw_image_tensor_batch = raw_image_tensor_batch  # Either shape (C, H, W) or (N, C, H, W)
         self.output_feature_data_file = output_feature_data_file

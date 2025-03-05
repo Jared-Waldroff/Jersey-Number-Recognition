@@ -18,7 +18,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from DataProcessing.Logger import CustomLogger
 from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
-from reid.CentroidsReidRepo.train_ctl_model import CTLModel
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
 #import configuration import as cfg
 
@@ -59,7 +58,6 @@ class DataPreProcessing:
         logging = CustomLogger().get_logger()
 
         self.num_images_processed = 0
-        self.ver_to_specs = {}
         
         if not self.silence_logs:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
@@ -77,11 +75,6 @@ class DataPreProcessing:
             if not path.exists():
                 os.makedirs(path)
                 logging.info(f"Created directory: {data_path.value}")
-                
-    def get_specs_from_version(self, model_version):
-        conf, weights = self.ver_to_specs[model_version]
-        conf, weights = str(conf), str(weights)
-        return conf, weights
 
     def get_tracks(self, input_folder):
         # Ignore hidden files
