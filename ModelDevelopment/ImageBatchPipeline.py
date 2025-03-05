@@ -1,5 +1,6 @@
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse
-from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
+from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations
+from DataProcessing.ImageFeatureTransformPipeline import ImageFeatureTransformPipeline
 from DataProcessing.Logger import CustomLogger
 from enum import Enum
 import torch
@@ -14,26 +15,26 @@ class DataLabelsUniverse(Enum):
 class ImageBatchPipeline:
     """
     Pipeline to process either a batch of images (e.g. a tracklet) or a single image.
-    This class performs preprocessing (including the centroid model pass) and further operations.
+    This class is dedicated for running models on already pre-processed data.
+    Image pre-processing is handled as part of class instantiation by implicilty instantiating an ImageFeatureTransfromPipeline class
     """
-    def __init__(self, raw_image_tensor, output_file, model: ModelUniverse, silence_logs: bool=False, display_transformed_image_sample: bool=False):
+    def __init__(self, raw_image_tensor_batch, output_feature_data_file, model: ModelUniverse, silence_logs: bool=False, display_transformed_image_sample: bool=False):
         self.display_transformed_image_sample = display_transformed_image_sample
-        self.raw_image_tensor = raw_image_tensor  # Either shape (C, H, W) or (N, C, H, W)
-        self.output_file = output_file
+        self.raw_image_tensor_batch = raw_image_tensor_batch  # Either shape (C, H, W) or (N, C, H, W)
+        self.output_feature_data_file = output_feature_data_file
+        self.image_feature_transform = ImageFeatureTransformPipeline(raw_image_batch=raw_image_tensor_batch, output_feature_data_file=output_feature_data_file)
         self.data_preprocessor = DataPreProcessing(silence_logs=silence_logs)
-        self.image_enhancer = ImageEnhancement()
         self.logger = CustomLogger().get_logger()
         
         # Preprocess the image(s) via the transform pipeline.
-        # The method image_transform_pipeline expects a raw image tensor and returns features.
-        self.preprocessed_features = self.data_preprocessor.image_transform_pipeline(self.raw_image_tensor, self.output_file)
+        self.image_feature_transform.run_image_transform_pipeline()
         
         # NOTE: This is not the image after it was passed through the image transform pipeline because we cannot visualize that.
         if self.display_transformed_image_sample:
-            # For display, we assume raw_image_tensor is a single image (or take first if batch).
-            single_img = self.raw_image_tensor if self.raw_image_tensor.dim() == 3 else self.raw_image_tensor[0]
+            # For display, we assume raw_image_tensor_batch is a single image (or take first if batch).
+            single_img = self.raw_image_tensor_batch if self.raw_image_tensor_batch.dim() == 3 else self.raw_image_tensor_batch[0]
             # Denormalize and convert to numpy image for display.
-            single_img = DataAugmentation(self.raw_image_tensor).denormalize(single_img)
+            single_img = DataAugmentation(self.raw_image_tensor_batch).denormalize(single_img)
             img_np = single_img.detach().cpu().permute(1, 2, 0).numpy()
             plt.imshow(img_np)
             plt.title("Raw Image")
@@ -53,7 +54,6 @@ class ImageBatchPipeline:
       pass
     
     def run_model_chain(self):
+        # This is where we actually layer models after already having pre-processed data.
+        # As all image pre-processing is handled as part of instnaitating this class, it is guaranteed that we are good to go at this point.
         self.logger.info("Running model chain on preprocessed image(s).")
-        # Insert further processing: legibility classifier, improved STR, etc.
-        # For now, simply log and return preprocessed features.
-        return self.preprocessed_features
