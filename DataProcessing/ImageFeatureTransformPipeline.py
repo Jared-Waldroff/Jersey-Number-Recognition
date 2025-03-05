@@ -6,6 +6,7 @@ from reid.CentroidsReidRepo.config.defaults import _C as cfg
 import torch
 import os
 import numpy as np
+import subprocess
 
 class ImageFeatureTransformPipeline:
     def __init__(self, raw_image_batch, output_feature_data_file, model_version='res50_market'):
@@ -27,8 +28,21 @@ class ImageFeatureTransformPipeline:
         
     def pass_through_gaussian_outliers_filter(self):
         self.logger.info("Identifying and removing outliers by calling gaussian_outliers_streamlined.py on feature file")
-        command = f"python StreamlinedPipelineScripts/gaussian_outliers_streamlined.py --feature_file {self.output_feature_data_file}"
-        success = os.system(command) == 0
+
+        command = [
+            "python",
+            "StreamlinedPipelineScripts/gaussian_outliers_streamlined.py",
+            "--feature_file", self.output_feature_data_file
+        ]
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            self.logger.info(result.stdout)  # Print logs from gaussian_outliers_streamlined.py
+            self.logger.error(result.stderr)  # Print errors if any
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error running gaussian_outliers_streamlined.py: {e}")
+            self.logger.error(e.stderr)
+        
         self.logger.info("Done removing outliers")
     
     def pass_through_reid_centroid(self):

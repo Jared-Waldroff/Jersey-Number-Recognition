@@ -3,6 +3,7 @@ import json
 import os
 import argparse
 from tqdm import tqdm
+from DataProcessing.Logger import CustomLogger
 
 def filter_outliers(feature_file, threshold=3.5, rounds=3):
     """
@@ -10,18 +11,17 @@ def filter_outliers(feature_file, threshold=3.5, rounds=3):
     Iteratively filters out outliers based on the Euclidean distance from the mean of
     the 'cleaned_data' at each round, but uses the original features for computing distances.
     
-    This faithfully replicates the original code's logic:
+    This replicates the original code's logic:
       cleaned_data = features
       for r in range(rounds):
           mu = mean(cleaned_data)
           dist = norm(features - mu)
           mean_dist = mean(dist)
           std = std(dist)
-          # Condition used:
-          #   (dist - mean_dist) <= threshold
-          # 'threshold * std' is computed but never used
-          # Then we filter cleaned_data = features[inlier_mask]
-          # and record the inlier indices
+          # Filtering: (dist - mean_dist) <= threshold
+          # (threshold * std is computed but not used)
+          # Then update cleaned_data = features[inlier_mask]
+          # and record the inlier indices.
     
     Args:
         feature_file (str): Path to the .npy feature file (features of shape (N, d)).
@@ -29,46 +29,44 @@ def filter_outliers(feature_file, threshold=3.5, rounds=3):
         rounds (int): Number of iterations for outlier filtering.
         
     Returns:
-        dict: A dictionary mapping round number -> list of inlier indices (from original features).
-              Round numbers are 0-based in this dict.
+        dict: A dictionary mapping round number (0-indexed) -> list of inlier indices (from the original feature matrix).
     """
-    # Load all features (N, d)
+    logger = CustomLogger().get_logger()
+    logger.info(f"Loading features from {feature_file}")
     features = np.load(feature_file, allow_pickle=True)
     N = features.shape[0]
-    original_features = features.copy()  # Keep an unmodified copy for distance calculations
+    original_features = features.copy()  # Unmodified copy for distance calculations
     indices = np.arange(N)               # Original indices for the feature rows
     
-    # Start with the entire feature set for 'cleaned_data'
+    # Start with the full set as "cleaned_data"
     cleaned_data = features.copy()
     cleaned_indices = indices.copy()
     
     results = {}
     for r in range(rounds):
-        # Fit a Gaussian distribution => basically compute mu
         mu = np.mean(cleaned_data, axis=0)
-        
-        # Compute Euclidean distance using the original features
         euclidean_distance = np.linalg.norm(original_features - mu, axis=1)
-        
-        # The original code calculates but never uses threshold * std for filtering
         mean_euclidean_distance = np.mean(euclidean_distance)
         std = np.std(euclidean_distance)
-        # leftover: th_val = threshold * std  (Not actually used in the condition)
+        th_val = threshold * std  # Calculated but not used in filtering
         
-        # The actual filtering condition from the original script:
+        # Log current round details
+        logger.info(f"Round {r+1}: mean_euclidean_distance = {mean_euclidean_distance:.4f}, std = {std:.4f}, threshold = {threshold}")
+        
         inlier_mask = (euclidean_distance - mean_euclidean_distance) <= threshold
+        inlier_indices = cleaned_indices[inlier_mask]
+        results[r] = inlier_indices.tolist()
         
-        # Update cleaned_data for the next round
+        logger.info(f"Round {r+1}: kept {len(inlier_indices)} out of {len(cleaned_indices)} features")
+        
+        # Update for next round
         cleaned_data = original_features[inlier_mask]
         cleaned_indices = cleaned_indices[inlier_mask]
-        
-        # Store the inlier indices for this round
-        results[r] = cleaned_indices.tolist()
     
-    # Write the results to a JSON in the same directory as 'feature_file'
     out_json = os.path.splitext(feature_file)[0] + f"_gauss_th={threshold}_r={rounds}.json"
     with open(out_json, "w") as f:
         json.dump(results, f)
+    logger.info(f"Outlier filtering complete. Results saved to {out_json}")
     
     return results
 
