@@ -28,12 +28,15 @@ class CentralPipeline:
                output_processed_data_path: DataPaths,
                single_image_pipeline: bool=True,
                display_transformed_image_sample: bool=False,
-               num_image_samples: int=1
+               num_image_samples: int=1,
+               use_cache: bool=True
                ):
-    self.display_transformed_image_sample = display_transformed_image_sample
     self.input_data_path = input_data_path
     self.output_processed_data_path = output_processed_data_path
     self.single_image_pipeline = single_image_pipeline
+    self.display_transformed_image_sample = display_transformed_image_sample
+    self.num_image_samples = num_image_samples
+    self.use_cache = use_cache
     
     # Check if the input directory exists. If not, tell the user.
     if not os.path.exists(self.input_data_path):
@@ -43,7 +46,7 @@ class CentralPipeline:
     if not os.path.exists(self.output_processed_data_path):
       os.makedirs(self.output_processed_data_path)
     
-    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=num_image_samples)
+    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
     self.image_enhancer = ImageEnhancement()
     self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
     self.logger = CustomLogger().get_logger()
@@ -72,6 +75,14 @@ class CentralPipeline:
         images = data_dict[tracklet]
         if num_images_per_tracklet is not None:
             images = images[:num_images_per_tracklet]
+            
+        if not self.use_cache:
+          # User does not want to use any cached tracklet feature data.
+          # Delete the cached data if it exists before proceeding
+          tracklet_feature_file = os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}")
+          if os.path.exists(tracklet_feature_file):
+            os.remove(tracklet_feature_file)
+            self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
         
         # For each tracklet, choose to process the entire batch or each image individually
         if self.single_image_pipeline:
@@ -79,13 +90,13 @@ class CentralPipeline:
             for image in images:
                 display_flag = num_images <= 1
                 num_images += 1
-                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}_features.npy"),
+                pipeline = ImageBatchPipeline(image, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"),
                                               model=ModelUniverse.DUMMY.value, silence_logs=True,
                                               display_transformed_image_sample=display_flag)
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the tracklet
-            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}_features.npy"),
+            pipeline = ImageBatchPipeline(images, output_file=os.path.join(self.output_processed_data_path, f"{tracklet}{DataPaths.FEATURE_DATA_FILE_POSTFIX.value}"),
                                           model=ModelUniverse.DUMMY.value, silence_logs=True,
                                           display_transformed_image_sample=self.display_transformed_image_sample)
             pipeline.run_model_chain()

@@ -44,6 +44,7 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
+    FEATURE_DATA_FILE_POSTFIX = "_features.npy"
 
 class DataPreProcessing:
     def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, silence_logs: bool=False):
@@ -122,7 +123,8 @@ class DataPreProcessing:
         processed_image = global_feat.cpu().numpy()  # shape: (N, d)
         
         # Append new features to output_file:
-        # (For production, consider using an HDF5 approach.)
+        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
+        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
         if os.path.exists(output_file):
             existing = np.load(output_file, allow_pickle=True)
             combined = np.concatenate([existing, processed_image], axis=0)
