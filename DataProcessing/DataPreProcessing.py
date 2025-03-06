@@ -43,15 +43,16 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
+    STREAMLINED_PIPELINE = str(Path.cwd().parent.parent / 'StreamlinedPipelineScripts')
 
 class CommonConstants(Enum):
     FEATURE_DATA_FILE_POSTFIX = "_features.npy"
 
 class DataPreProcessing:
-    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, silence_logs: bool=False):
+    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.num_image_samples = num_image_samples
-        self.silence_logs = silence_logs
+        self.suppress_logging = suppress_logging
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
@@ -59,7 +60,7 @@ class DataPreProcessing:
 
         self.num_images_processed = 0
         
-        if not self.silence_logs:
+        if not self.suppress_logging:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
             
             for data_path in DataPaths:
@@ -165,7 +166,7 @@ class DataPreProcessing:
 
         # If no explicit track list is provided, gather from disk
         if tracks is None:
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("No tracklets provided to generate_features. Getting all tracklets.")
             tracks, max_track = self.get_tracks(input_folder)
 
@@ -176,7 +177,7 @@ class DataPreProcessing:
 
         if self.use_cuda:
             # Single-process approach on GPU
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("Using single-process GPU mode to generate features.")
             for track in tqdm(tracks, desc="Loading tracklets (GPU)"):
                 result = self.process_single_track(track, input_folder, val_transforms)
@@ -185,7 +186,7 @@ class DataPreProcessing:
                     processed_data[track_name] = features
         else:
             # Multi-process CPU approach
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
             with ProcessPoolExecutor() as executor:
                 futures = {

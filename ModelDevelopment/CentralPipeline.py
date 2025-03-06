@@ -29,7 +29,8 @@ class CentralPipeline:
                single_image_pipeline: bool=True,
                display_transformed_image_sample: bool=False,
                num_image_samples: int=1,
-               use_cache: bool=True
+               use_cache: bool=True,
+               suppress_logging: bool=False
                ):
     self.input_data_path = input_data_path
     self.output_processed_data_path = output_processed_data_path
@@ -37,6 +38,7 @@ class CentralPipeline:
     self.display_transformed_image_sample = display_transformed_image_sample
     self.num_image_samples = num_image_samples
     self.use_cache = use_cache
+    self.suppress_logging = suppress_logging
     
     self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
     self.image_enhancer = ImageEnhancement()
@@ -66,7 +68,7 @@ class CentralPipeline:
     
     self.DISP_IMAGE_CAP = 1
     
-  def run_soccernet_pipeline(self, num_tracklets=None, num_images_per_tracklet=None):
+  def run_soccernet(self, num_tracklets=None, num_images_per_tracklet=None):
     self.logger.info("Running the SoccerNet pipeline.")
     if num_tracklets is None:
         num_tracklets = self.total_tracklets
@@ -102,13 +104,17 @@ class CentralPipeline:
                 num_images += 1
                 pipeline = ImageBatchPipeline(raw_image_tensor_batch=image,
                                               output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
-                                              model=ModelUniverse.DUMMY.value, silence_logs=True,
-                                              display_transformed_image_sample=display_flag)
+                                              model=ModelUniverse.DUMMY.value,
+                                              display_transformed_image_sample=display_flag,
+                                              suppress_logging=self.suppress_logging,
+                                              use_cache=self.use_cache)
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the tracklet
             pipeline = ImageBatchPipeline(raw_image_tensor_batch=images,
                                           output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
-                                          model=ModelUniverse.DUMMY.value, silence_logs=True,
-                                          display_transformed_image_sample=self.display_transformed_image_sample)
+                                          model=ModelUniverse.DUMMY.value,
+                                          display_transformed_image_sample=self.display_transformed_image_sample,
+                                          suppress_logging=self.suppress_logging,
+                                          use_cache=self.use_cache)
             pipeline.run_model_chain()

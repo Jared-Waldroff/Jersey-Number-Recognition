@@ -23,12 +23,18 @@ class ImageBatchPipeline:
                 output_feature_data_file,
                 model: ModelUniverse,
                 display_transformed_image_sample: bool=False,
-                silence_logs: bool=False):
+                suppress_logging: bool=False,
+                use_cache: bool=True):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.raw_image_tensor_batch = raw_image_tensor_batch  # Either shape (C, H, W) or (N, C, H, W)
         self.output_feature_data_file = output_feature_data_file
-        self.image_feature_transform = ImageFeatureTransformPipeline(raw_image_batch=raw_image_tensor_batch, output_feature_data_file=output_feature_data_file)
-        self.data_preprocessor = DataPreProcessing(silence_logs=silence_logs)
+        self.use_cache = use_cache
+        self.image_feature_transform = ImageFeatureTransformPipeline(
+          raw_image_batch=raw_image_tensor_batch,
+          output_feature_data_file=output_feature_data_file,
+          suppress_logging=suppress_logging,
+          use_cache=use_cache)
+        self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
         # Preprocess the image(s) via the transform pipeline.

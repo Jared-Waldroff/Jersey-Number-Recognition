@@ -9,10 +9,12 @@ import numpy as np
 import subprocess
 
 class ImageFeatureTransformPipeline:
-    def __init__(self, raw_image_batch, output_feature_data_file, model_version='res50_market'):
+    def __init__(self, raw_image_batch, output_feature_data_file, model_version='res50_market', suppress_logging: bool=False, use_cache: bool=True):
         self.raw_image_batch = raw_image_batch
         self.output_feature_data_file = output_feature_data_file
         self.model_version = model_version
+        self.suppress_logging = suppress_logging
+        self.use_cache = use_cache
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
@@ -28,17 +30,20 @@ class ImageFeatureTransformPipeline:
         
     def pass_through_gaussian_outliers_filter(self):
         self.logger.info("Identifying and removing outliers by calling gaussian_outliers_streamlined.py on feature file")
-
         command = [
             "python",
-            "StreamlinedPipelineScripts/gaussian_outliers_streamlined.py",
+            f"{DataPaths.STREAMLINED_PIPELINE.value}\\gaussian_outliers.py",
             "--feature_file", self.output_feature_data_file
         ]
+        if self.suppress_logging:
+            command.append("--suppress_logging")
+        if self.use_cache:
+            command.append("--use_cache")
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
             self.logger.info(result.stdout)  # Print logs from gaussian_outliers_streamlined.py
-            self.logger.error(result.stderr)  # Print errors if any
+            #self.logger.error(result.stderr)
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running gaussian_outliers_streamlined.py: {e}")
             self.logger.error(e.stderr)

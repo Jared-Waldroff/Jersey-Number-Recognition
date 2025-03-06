@@ -3,9 +3,15 @@ import json
 import os
 import argparse
 from tqdm import tqdm
+import sys
+
+# Add the parent path to the sys path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+
 from DataProcessing.Logger import CustomLogger
 
-def filter_outliers(feature_file, threshold=3.5, rounds=3):
+
+def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_logging: bool=False, use_cache: bool=True):
     """
     Process a single feature file (a .npy file) containing feature vectors for a tracklet.
     Iteratively filters out outliers based on the Euclidean distance from the mean of
@@ -31,7 +37,7 @@ def filter_outliers(feature_file, threshold=3.5, rounds=3):
     Returns:
         dict: A dictionary mapping round number (0-indexed) -> list of inlier indices (from the original feature matrix).
     """
-    logger = CustomLogger().get_logger()
+    logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
     logger.info(f"Loading features from {feature_file}")
     features = np.load(feature_file, allow_pickle=True)
     N = features.shape[0]
@@ -41,6 +47,12 @@ def filter_outliers(feature_file, threshold=3.5, rounds=3):
     # Start with the full set as "cleaned_data"
     cleaned_data = features.copy()
     cleaned_indices = indices.copy()
+    
+    if not use_cache:
+        # Delete the feature file if it exists before proceeding
+        if os.path.exists(feature_file):
+            os.remove(feature_file)
+            logger.info(f"Removed cached feature file (use_cache: False): {feature_file}")
     
     results = {}
     for r in range(rounds):
@@ -75,6 +87,13 @@ if __name__ == "__main__":
     parser.add_argument('--feature_file', help="Path to the .npy feature file for a tracklet", required=True)
     parser.add_argument('--threshold', type=float, default=3.5, help="Offset threshold for (distance - mean_dist)")
     parser.add_argument('--rounds', type=int, default=3, help="Number of rounds for iterative outlier filtering")
+    parser.add_argument('--suppress_logging', action='store_true', help="Suppress logging output")
+    parser.add_argument('--use_cache', action='store_true', help="Flag to know if we should rebuild the cache or use it")
     args = parser.parse_args()
     
-    filter_outliers(args.feature_file, threshold=args.threshold, rounds=args.rounds)
+    filter_outliers(
+        args.feature_file,
+        threshold=args.threshold,
+        rounds=args.rounds,
+        suppress_logging=args.suppress_logging,
+        use_cache=args.use_cache)
