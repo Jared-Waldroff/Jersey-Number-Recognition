@@ -15,6 +15,10 @@ reid_home = 'reid/'
 dataset = {'SoccerNet':
                 {'root_dir': './data/SoccerNet',
                  'working_dir': './out/SoccerNetResults',
+                 # GLOBAL PARAMS: These are separated by the test/train/challenge dirs anyways so name can be the same.
+                 'sim_filtered': 'main_subject_0.4.json',
+                 'gauss_filtered': 'main_subject_gauss_th=3.5_r=3.json',
+                 'soccer_ball_list': 'soccer_ball.json',
                  'test': {
                         'images': 'test/images',
                         'gt': 'test/test_gt.json',

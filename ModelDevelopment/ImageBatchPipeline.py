@@ -6,6 +6,7 @@ from enum import Enum
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+import configuration as config
 
 class DataLabelsUniverse(Enum):
     TRAIN = "TRAIN"
@@ -22,13 +23,15 @@ class ImageBatchPipeline:
                 raw_image_tensor_batch,
                 output_feature_data_file,
                 model: ModelUniverse,
+                output_processed_data_path: DataPaths,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
-                use_cache: bool=True):
+                use_cache: bool=True,):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.raw_image_tensor_batch = raw_image_tensor_batch  # Either shape (C, H, W) or (N, C, H, W)
         self.output_feature_data_file = output_feature_data_file
         self.use_cache = use_cache
+        self.output_processed_data_path = output_processed_data_path
         self.image_feature_transform = ImageFeatureTransformPipeline(
           raw_image_batch=raw_image_tensor_batch,
           output_feature_data_file=output_feature_data_file,
@@ -59,25 +62,18 @@ class ImageBatchPipeline:
       self.logger.info("Classifying legibility of image(s) using pre-trained model.")
       self.legible_tracklets, self.illegible_tracklets = get_soccer_net_legibility_results(args, use_filtered=True, filter='gauss', exclude_balls=True)
 
-      root_dir = config.dataset['SoccerNet']['root_dir']
-      image_dir = config.dataset['SoccerNet'][args.part]['images']
-      path_to_images = os.path.join(root_dir, image_dir)
-      tracklets = os.listdir(path_to_images)
-
       if use_filtered:
           if filter == 'sim':
-              path_to_filter_results = os.path.join(config.dataset['SoccerNet']['working_dir'],
-                                                    config.dataset['SoccerNet'][args.part]['sim_filtered'])
+              path_to_filter_results = os.path.join(output_processed_data_path, config.dataset['SoccerNet']['sim_filtered'])
           else:
-              path_to_filter_results = os.path.join(config.dataset['SoccerNet']['working_dir'],
-                                                    config.dataset['SoccerNet'][args.part]['gauss_filtered'])
+              path_to_filter_results = os.path.join(output_processed_data_path, config.dataset['SoccerNet']['gauss_filtered'])
           with open(path_to_filter_results, 'r') as f:
               filtered = json.load(f)
 
       if exclude_balls:
           updated_tracklets = []
-          soccer_ball_list = os.path.join(config.dataset['SoccerNet']['working_dir'],
-                                          config.dataset['SoccerNet'][args.part]['soccer_ball_list'])
+          soccer_ball_list = os.path.join(output_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
+          
           with open(soccer_ball_list, 'r') as f:
               ball_json = json.load(f)
           ball_list = ball_json['ball_tracks']

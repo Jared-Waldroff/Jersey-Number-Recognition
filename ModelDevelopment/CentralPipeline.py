@@ -102,19 +102,25 @@ class CentralPipeline:
             for image in images:
                 display_flag = num_images <= 1
                 num_images += 1
+                
+                # NOTE: This ImageBatchPipeline needs to be instantiated twice.
+                # The reason for this is because it does pre-processing implicitly in the constructor.
+                # If we call it once for every image, pre-processing runs by-image. Otherwise, it is by tracklet.
                 pipeline = ImageBatchPipeline(raw_image_tensor_batch=image,
                                               output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                               model=ModelUniverse.DUMMY.value,
                                               display_transformed_image_sample=display_flag,
                                               suppress_logging=self.suppress_logging,
-                                              use_cache=self.use_cache)
+                                              use_cache=self.use_cache,
+                                              output_processed_data_path=self.output_processed_data_path)
                 pipeline.run_model_chain()
         else:
-            # Process the entire batch of images for the tracklet
+            # Process the entire batch of images for the whole tracklet
             pipeline = ImageBatchPipeline(raw_image_tensor_batch=images,
                                           output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
                                           model=ModelUniverse.DUMMY.value,
                                           display_transformed_image_sample=self.display_transformed_image_sample,
                                           suppress_logging=self.suppress_logging,
-                                          use_cache=self.use_cache)
+                                          use_cache=self.use_cache,
+                                          output_processed_data_path=self.output_processed_data_path)
             pipeline.run_model_chain()
