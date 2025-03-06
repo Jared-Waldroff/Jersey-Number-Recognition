@@ -18,7 +18,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from DataProcessing.Logger import CustomLogger
 from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
-from reid.CentroidsReidRepo.train_ctl_model import CTLModel
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
 #import configuration import as cfg
 
@@ -44,24 +43,24 @@ class DataPaths(Enum):
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
     PROCESSED_DATA_OUTPUT_DIR_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'challenge')
+    STREAMLINED_PIPELINE = str(Path.cwd().parent.parent / 'StreamlinedPipelineScripts')
 
 class CommonConstants(Enum):
     FEATURE_DATA_FILE_POSTFIX = "_features.npy"
 
 class DataPreProcessing:
-    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, silence_logs: bool=False):
+    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.num_image_samples = num_image_samples
-        self.silence_logs = silence_logs
+        self.suppress_logging = suppress_logging
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
         logging = CustomLogger().get_logger()
 
         self.num_images_processed = 0
-        self.ver_to_specs = {}
         
-        if not self.silence_logs:
+        if not self.suppress_logging:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
             
             for data_path in DataPaths:
@@ -77,86 +76,7 @@ class DataPreProcessing:
             if not path.exists():
                 os.makedirs(path)
                 logging.info(f"Created directory: {data_path.value}")
-                
-    def get_specs_from_version(self, model_version):
-        conf, weights = self.ver_to_specs[model_version]
-        conf, weights = str(conf), str(weights)
-        return conf, weights
-    
-    def pass_through_reid_centroid(self, raw_image, output_file, model_version='res50_market'):
-        """
-        Process a raw image (or batch) through the pre-trained centroid model.
-        This method:
-          - Loads the appropriate model using a config and checkpoint.
-          - Ensures input raw_image is 4D (N, C, H, W); if 3D, unsqueezes.
-          - Feeds the image through model.backbone and batch-norm layer.
-          - Flattens the global features per sample.
-          - Appends the feature vector to the output file.
-        
-        Args:
-            raw_image (torch.Tensor): Input tensor (C, H, W) or (N, C, H, W).
-            output_file (str): File path to save the features.
-            model_version (str): Version key to select model configuration.
-        
-        Returns:
-            np.ndarray: Flattened feature vector(s) with shape (N, d)
-        """
-        # Update the ver_to_specs dictionary:
-        self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
-        self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
-        
-        CONFIG_FILE, MODEL_FILE = self.get_specs_from_version(model_version)
-        cfg.merge_from_file(CONFIG_FILE)
-        opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
-        cfg.merge_from_list(opts)
-        
-        model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
-        if self.use_cuda:
-            model.to('cuda')
-            print("using GPU")
-        model.eval()
-        
-        # Ensure input is 4D
-        if raw_image.dim() == 3:
-            raw_image = raw_image.unsqueeze(0)
-        
-        with torch.no_grad():
-            input_tensor = raw_image.cuda() if self.use_cuda else raw_image
-            _, global_feat = model.backbone(input_tensor)
-            global_feat = model.bn(global_feat)
-        
-        # global_feat shape: (N, d). We keep the batch dimension.
-        processed_image = global_feat.cpu().numpy()  # shape: (N, d)
-        
-        # Append new features to output_file:
-        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
-        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
-        if os.path.exists(output_file):
-            existing = np.load(output_file, allow_pickle=True)
-            combined = np.concatenate([existing, processed_image], axis=0)
-            np.save(output_file, combined)
-        else:
-            np.save(output_file, processed_image)
-        logging.info(f"Saved features for tracklet with shape {processed_image.shape}")
-            
-        return processed_image
 
-    def image_transform_pipeline(self, raw_image, output_file, model_version='res50_market'):
-        """
-        Process a single raw image through the centroid model pipeline.
-        
-        Steps:
-          1. Accept a raw image (tensor, file path, or PIL Image) and convert it to a normalized tensor.
-          2. Pass the tensor through the centroid model for resizing, cropping, and keyframe identification.
-          3. Save the processed features to output_file.
-        
-        Returns:
-          np.ndarray: The flattened feature vector for the input image.
-        """
-        processed_image = self.pass_through_reid_centroid(raw_image, output_file, model_version)
-        return processed_image
-
-  
     def get_tracks(self, input_folder):
         # Ignore hidden files
         tracks = [t for t in os.listdir(input_folder) if not t.startswith('.')]
@@ -246,7 +166,7 @@ class DataPreProcessing:
 
         # If no explicit track list is provided, gather from disk
         if tracks is None:
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("No tracklets provided to generate_features. Getting all tracklets.")
             tracks, max_track = self.get_tracks(input_folder)
 
@@ -257,7 +177,7 @@ class DataPreProcessing:
 
         if self.use_cuda:
             # Single-process approach on GPU
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("Using single-process GPU mode to generate features.")
             for track in tqdm(tracks, desc="Loading tracklets (GPU)"):
                 result = self.process_single_track(track, input_folder, val_transforms)
@@ -266,7 +186,7 @@ class DataPreProcessing:
                     processed_data[track_name] = features
         else:
             # Multi-process CPU approach
-            if not self.silence_logs:
+            if not self.suppress_logging:
                 logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
             with ProcessPoolExecutor() as executor:
                 futures = {
