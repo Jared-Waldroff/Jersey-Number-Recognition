@@ -48,12 +48,16 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
     cleaned_data = features.copy()
     cleaned_indices = indices.copy()
     
+    out_json = os.path.splitext(feature_file)[0] + f"_gauss_th={threshold}_r={rounds}.json"
+
     if not use_cache:
-        # Delete the feature file if it exists before proceeding
-        if os.path.exists(feature_file):
-            os.remove(feature_file)
-            logger.info(f"Removed cached feature file (use_cache: False): {feature_file}")
-    
+        if os.path.exists(out_json):
+            try:
+                os.remove(out_json)
+                logger.info(f"Removed cached json data file (use_cache: False): {out_json}")
+            except Exception as e:
+                logger.warning(f"Failed to remove cached json data file: {out_json}. Error: {e}")
+
     results = {}
     for r in range(rounds):
         mu = np.mean(cleaned_data, axis=0)
@@ -75,7 +79,6 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
         cleaned_data = original_features[inlier_mask]
         cleaned_indices = cleaned_indices[inlier_mask]
     
-    out_json = os.path.splitext(feature_file)[0] + f"_gauss_th={threshold}_r={rounds}.json"
     with open(out_json, "w") as f:
         json.dump(results, f)
     logger.info(f"Outlier filtering complete. Results saved to {out_json}")

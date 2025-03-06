@@ -37,6 +37,9 @@ class ImageBatchPipeline:
         self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
+        self.legible_tracklets = {}
+        self.illegible_tracklets = []
+        
         # Preprocess the image(s) via the transform pipeline.
         self.image_feature_transform.run_image_transform_pipeline()
         
@@ -52,8 +55,62 @@ class ImageBatchPipeline:
             #plt.axis("off")
             plt.show()
 
-    def pass_through_legibility_classifier(self):
-      pass
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
+      self.logger.info("Classifying legibility of image(s) using pre-trained model.")
+      self.legible_tracklets, self.illegible_tracklets = get_soccer_net_legibility_results(args, use_filtered=True, filter='gauss', exclude_balls=True)
+
+      root_dir = config.dataset['SoccerNet']['root_dir']
+      image_dir = config.dataset['SoccerNet'][args.part]['images']
+      path_to_images = os.path.join(root_dir, image_dir)
+      tracklets = os.listdir(path_to_images)
+
+      if use_filtered:
+          if filter == 'sim':
+              path_to_filter_results = os.path.join(config.dataset['SoccerNet']['working_dir'],
+                                                    config.dataset['SoccerNet'][args.part]['sim_filtered'])
+          else:
+              path_to_filter_results = os.path.join(config.dataset['SoccerNet']['working_dir'],
+                                                    config.dataset['SoccerNet'][args.part]['gauss_filtered'])
+          with open(path_to_filter_results, 'r') as f:
+              filtered = json.load(f)
+
+      if exclude_balls:
+          updated_tracklets = []
+          soccer_ball_list = os.path.join(config.dataset['SoccerNet']['working_dir'],
+                                          config.dataset['SoccerNet'][args.part]['soccer_ball_list'])
+          with open(soccer_ball_list, 'r') as f:
+              ball_json = json.load(f)
+          ball_list = ball_json['ball_tracks']
+          for track in tracklets:
+              if not track in ball_list:
+                  updated_tracklets.append(track)
+          tracklets = updated_tracklets
+
+      for directory in tqdm(tracklets):
+          track_dir = os.path.join(path_to_images, directory)
+          if use_filtered:
+              images = filtered[directory]
+          else:
+              images = os.listdir(track_dir)
+          images_full_path = [os.path.join(track_dir, x) for x in images]
+          track_results = lc.run(images_full_path, config.dataset['SoccerNet']['legibility_model'], arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
+          legible = list(np.nonzero(track_results))[0]
+          if len(legible) == 0:
+              self.illegible_tracklets.append(directory)
+          else:
+              legible_images = [images_full_path[i] for i in legible]
+              self.legible_tracklets[directory] = legible_images
+
+      # save results
+      json_object = json.dumps(self.legible_tracklets, indent=4)
+      full_legibile_path = os.path.join(config.dataset['SoccerNet']['working_dir'], config.dataset['SoccerNet'][args.part]['legible_result'])
+      with open(full_legibile_path, "w") as outfile:
+          outfile.write(json_object)
+
+      full_illegibile_path = os.path.join(config.dataset['SoccerNet']['working_dir'], config. dataset['SoccerNet'][args.part]['illegible_result'])
+      json_object = json.dumps({'illegible': self.illegible_tracklets}, indent=4)
+      with open(full_illegibile_path, "w") as outfile:
+          outfile.write(json_object)
     
     def pass_through_improved_str(self, layer_moe: bool=False, layer_rac: bool=False):
       pass
