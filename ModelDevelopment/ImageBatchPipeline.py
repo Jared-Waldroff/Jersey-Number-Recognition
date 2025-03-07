@@ -105,9 +105,8 @@ class ImageBatchPipeline:
                         updated_tracklets.append(track)
                 self.tracklets_to_process = self.tracklets_to_process
 
-        # Loop over our subset of the available universe
-        # NOTE: This part is not ready yet.
         if use_filtered:
+            # Step 1: Obtain main_subject_gauss_th=3.5.json
             images = filtered # We maintain one file per tracklet
         else:
             images = self.tracklets_to_process

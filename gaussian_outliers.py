@@ -12,6 +12,12 @@ def get_main_subject(image_folder, feature_folder, threshold = 3.5, rounds = 3):
     tracks = [d for d in all_items if not d.startswith('.') and os.path.isdir(os.path.join(image_folder, d))]
 
     results = {}
+    
+    # We output 3 results jsons
+    # \global_feature_dir
+        # \main_subject_gaus_th=3.5_r=1: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=2: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
     for r in range(rounds):
         results[r] = {x: [] for x in tracks}
 

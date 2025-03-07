@@ -71,6 +71,8 @@ def get_soccer_net_legibility_results(args, use_filtered = False, filter = 'sim'
                                                   config.dataset['SoccerNet'][args.part]['gauss_filtered'])
         with open(path_to_filter_results, 'r') as f:
             filtered = json.load(f)
+    
+    # Filtered is going to be a json of this structure: \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
 
     legible_tracklets = {}
     illegible_tracklets = []
@@ -91,7 +93,7 @@ def get_soccer_net_legibility_results(args, use_filtered = False, filter = 'sim'
     for directory in tqdm(tracklets):
         track_dir = os.path.join(path_to_images, directory)
         if use_filtered:
-            images = filtered[directory]
+            images = filtered[directory] # The value of images is going to be either 1 or 0.
         else:
             images = os.listdir(track_dir)
         images_full_path = [os.path.join(track_dir, x) for x in images]

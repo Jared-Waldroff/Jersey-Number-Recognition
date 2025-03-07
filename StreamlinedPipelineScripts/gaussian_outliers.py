@@ -39,6 +39,28 @@ def filter_outliers(tracklet_processed_data_path, threshold: float=3.5, rounds: 
     Returns:
         dict: A dictionary mapping round number (0-indexed) -> list of inlier indices (from the original feature matrix).
     """
+    # We output 3 results jsons
+    # BEFORE: \global_feature_dir => We output 3 results jsons
+        # \main_subject_gaus_th=3.5_r=1: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=2: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
+    # AFTER: \tracklet_processed_data_path (i.e. \0, \1, \2, ..., \n) => We output 1 result JSON
+        # \main_subject_gaus_th=3.5: {1: 1_or_0, 2: 1_or_0, 3: 1_or_0} corresponding to r=1, r=2, r=3
+        # -> Then we access this main_subject_gaus_th=3.5 and index into which r we want.
+        
+    # This script is designed to be run on the features.npy data for a single tracklet only, controlled via tracklet_processed_data_path
+    # We extract that features.npy data from the tracklet_processed_data_path.
+    # This features.npy has data for every single image in that tracklet.
+    # We do the outlier filtering by loading this features.npy into memory and the algo runs on all images for this single tracklet.
+    # Then, we output a 1 if we should keep this tracklet, or 0 if we should exclude it after looking through all the images and doing 3 passes.
+    # We have two choices:
+    #  A. output a single main_subject_gaus_th=3.5 script and inside have 0..3: [array of image numbers indicating they should be included at this pass]
+    #   e.g:
+    #    0: {1, 5, 8, 9, 10}
+    #    1: {1, 5, 8}
+    #    2: {1, 5}
+    #  B. output 3 main_subject_gaus_th=3.5_r={r+1} scripts and inside have just a single key corresponding to the r value, and value is array of imgs to keep.
+    
     logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
     feature_file = os.path.join(tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
     logger.info(f"Loading features from {feature_file}")
@@ -91,9 +113,226 @@ def filter_outliers(tracklet_processed_data_path, threshold: float=3.5, rounds: 
     
     return results
 
+
+    
+    
+# OPTION A: ONE FILE PER TRACKLET
+def filter_outliers(current_tracklet_images_input_dir, current_tracklet_processed_data_dir, threshold: float=3.5, rounds: int=3, suppress_logging: bool=False, use_cache: bool=True):
+    # We output 3 results jsons
+    # BEFORE: \global_feature_dir => We output 3 results jsons
+        # \main_subject_gaus_th=3.5_r=1: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=2: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
+    # AFTER: \tracklet_processed_data_path (i.e. \0, \1, \2, ..., \n) => We output 1 result JSON
+        # \main_subject_gaus_th=3.5: {1: 1_or_0, 2: 1_or_0, 3: 1_or_0} corresponding to r=1, r=2, r=3
+        # -> Then we access this main_subject_gaus_th=3.5 and index into which r we want.
+        
+    # This script is designed to be run on the features.npy data for a single tracklet only, controlled via tracklet_processed_data_path
+    # We extract that features.npy data from the tracklet_processed_data_path.
+    # This features.npy has data for every single image in that tracklet.
+    # We do the outlier filtering by loading this features.npy into memory and the algo runs on all images for this single tracklet.
+    # Then, we output a 1 if we should keep this tracklet, or 0 if we should exclude it after looking through all the images and doing 3 passes.
+    # We have two choices:
+    #  A. output a single main_subject_gaus_th=3.5 script and inside have 0..3: [array of image numbers indicating they should be included at this pass]
+    #   e.g: \main_subject_gaus_th=3.5:
+    #    1: {1, 5, 8, 9, 10}
+    #    2: {1, 5, 8}
+    #    3: {1, 5}
+    #  B. output 3 main_subject_gaus_th=3.5_r={r+1} scripts and inside have just a single key corresponding to the r value, and value is array of imgs to keep.
+    #   e.g.
+    #   \main_subject_gaus_th=3.5_r=1 => 1: [1, 5, 8, 9, 10]
+    #   \main_subject_gaus_th=3.5_r=2 => 2: [1, 5, 8]
+    #   \main_subject_gaus_th=3.5_r=3 => 3: [1, 5]
+    # Option A is cleaner and makes more sense.
+    # Updates to be made to the original script to make it work for the new use-case where looping over tracks happens outside:
+    # 1. Intake a current_tracklet_images_input_dir
+    # 2. Intake a current_tracklet_processed_data_dir
+    # 3. Delete tracks = [] line.
+    # 4. Adjust loop: for r in range(rounds): results[r] = []
+    # 5. Remove loop: for tr in tqdm(tracks)
+    # 6. Inside that loop, do all_files = os.listdir(current_tracklet_images_input_dir)
+    # 7. Continue with adjustments necessary to account for the fact taht tracklet for loop is happening outside this script.
+    
+    # Inside ImageBatchPipeline, retrieve the gaussian outliers JSON for that tracklet
+    # Then parse the 'gauss_filtered' value from the configuration file, access the r to extract
+    # Then index into that gauss_filtered json so that we do images = gauss_filtered[r]. Problem solved.
+    
+    results = {}
+
+    for r in range(rounds):
+        # 0: []
+        # 1: []
+        # 2: []
+        results[r] = []
+
+    # Get the files for the current tracklet
+    all_files = os.listdir(current_tracklet_images_input_dir)
+    
+    # Filter out hidden files in the tracklet directory
+    images = [img for img in all_files if not img.startswith('.')]
+    
+    # Get the features path for the current tracklet
+    feature_file_path = os.path.join(current_tracklet_processed_data_dir, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+
+    with open(feature_file_path, 'rb') as f:
+        features = np.load(f)
+    if len(images) <= 2:
+        # Too few images to do pruning on. Just include all of them.
+        # This means indexing into every r of the results object and including all images of the current tracklet across all rounds/
+        for r in range(rounds):
+            results[r] = images
+            
+        # And do not run the pruning algo. Just return here, because the outer loop controls the next tracklet.
+        return results
+
+    # If we reached this point, we have enough data to run pruning on.
+    cleaned_data = features
+    for r in range(rounds):
+        # Fit a Gaussian distribution to the data
+        mu = np.mean(cleaned_data, axis=0)
+
+        euclidean_distance = np.linalg.norm(features - mu, axis = 1)
+
+        mean_euclidean_distance = np.mean(euclidean_distance)
+        std = np.std(euclidean_distance)
+        th = threshold * std
+
+        # Remove outliers from the data
+        cleaned_data = features[(euclidean_distance - mean_euclidean_distance) <= threshold]
+        cleaned_data_indexes = np.where((euclidean_distance - mean_euclidean_distance)<= threshold)[0]
+
+        for i in cleaned_data_indexes:
+            # Access the value array for this round (implicitly for this tracklet as this file is for this tracklet and only this tracklet)
+            results[r].append(images[i])
+
+    for r in range(rounds):
+        result_file_name = f"main_subject_gauss_th={threshold}_r={r + 1}.json"
+        with open(os.path.join(feature_folder, result_file_name), "w") as outfile:
+            json.dump(results[r], outfile)
+
+    return results
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tracklet_processed_data_path', help="Path to the .npy feature file for a tracklet", required=True)
+    parser.add_argument('--current_tracklet_images_input_dir', help="Path to the raw images for the current tracklet", required=True)
+    parser.add_argument('--current_tracklet_processed_data_dir', help="Path to the processed output data dir for the current tracklet", required=True)
+    parser.add_argument('--threshold', type=float, default=3.5, help="Offset threshold for (distance - mean_dist)")
+    parser.add_argument('--rounds', type=int, default=3, help="Number of rounds for iterative outlier filtering")
+    parser.add_argument('--suppress_logging', action='store_true', help="Suppress logging output")
+    parser.add_argument('--use_cache', action='store_true', help="Flag to know if we should rebuild the cache or use it")
+    args = parser.parse_args()
+    
+    filter_outliers(
+        args.tracklet_processed_data_path,
+        threshold=args.threshold,
+        rounds=args.rounds,
+        suppress_logging=args.suppress_logging,
+        use_cache=args.use_cache)
+    
+    
+    
+# TODO: GO BACK TO THIS VERSION.
+# OPTION B: MASTER FILE WITH MULTIPLE ROUNDS AND THEN ALL TRACKLETS, LIKE ORIGINAL.
+# ONLY CHANGE: Just open the file, access the tracklet to which we wish to add the keep list to, then close.
+def filter_outliers(current_tracklet_images_input_dir, current_tracklet_processed_data_dir, threshold: float=3.5, rounds: int=3, suppress_logging: bool=False, use_cache: bool=True):
+    # We output 3 results jsons
+    # BEFORE: \global_feature_dir => We output 3 results jsons
+        # \main_subject_gaus_th=3.5_r=1: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=2: {0: [], 1: [], ..., n: []}
+        # \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
+    # AFTER: \tracklet_processed_data_path (i.e. \0, \1, \2, ..., \n) => We output 1 result JSON
+        # \main_subject_gaus_th=3.5: {1: 1_or_0, 2: 1_or_0, 3: 1_or_0} corresponding to r=1, r=2, r=3
+        # -> Then we access this main_subject_gaus_th=3.5 and index into which r we want.
+        
+    # This script is designed to be run on the features.npy data for a single tracklet only, controlled via tracklet_processed_data_path
+    # We extract that features.npy data from the tracklet_processed_data_path.
+    # This features.npy has data for every single image in that tracklet.
+    # We do the outlier filtering by loading this features.npy into memory and the algo runs on all images for this single tracklet.
+    # Then, we output a 1 if we should keep this tracklet, or 0 if we should exclude it after looking through all the images and doing 3 passes.
+    # We have two choices:
+    #  A. output a single main_subject_gaus_th=3.5 script and inside have 0..3: [array of image numbers indicating they should be included at this pass]
+    #   e.g: \main_subject_gaus_th=3.5:
+    #    1: {1, 5, 8, 9, 10}
+    #    2: {1, 5, 8}
+    #    3: {1, 5}
+    #  B. output 3 main_subject_gaus_th=3.5_r={r+1} scripts and inside have just a single key corresponding to the r value, and value is array of imgs to keep.
+    #   e.g.
+    #   \main_subject_gaus_th=3.5_r=1 => 1: [1, 5, 8, 9, 10]
+    #   \main_subject_gaus_th=3.5_r=2 => 2: [1, 5, 8]
+    #   \main_subject_gaus_th=3.5_r=3 => 3: [1, 5]
+    # Option A is cleaner and makes more sense.
+    # Updates to be made to the original script to make it work for the new use-case where looping over tracks happens outside:
+    # 1. Intake a current_tracklet_images_input_dir
+    # 2. Intake a current_tracklet_processed_data_dir
+    # 3. Delete tracks = [] line.
+    # 4. Adjust loop: for r in range(rounds): results[r] = []
+    # 5. Remove loop: for tr in tqdm(tracks)
+    # 6. Inside that loop, do all_files = os.listdir(current_tracklet_images_input_dir)
+    # 7. Continue with adjustments necessary to account for the fact taht tracklet for loop is happening outside this script.
+    
+    # Inside ImageBatchPipeline, retrieve the gaussian outliers JSON for that tracklet
+    # Then parse the 'gauss_filtered' value from the configuration file, access the r to extract
+    # Then index into that gauss_filtered json so that we do images = gauss_filtered[r]. Problem solved.
+    
+    results = {}
+
+    for r in range(rounds):
+        # 0: []
+        # 1: []
+        # 2: []
+        results[r] = []
+
+    # Get the files for the current tracklet
+    all_files = os.listdir(current_tracklet_images_input_dir)
+    
+    # Filter out hidden files in the tracklet directory
+    images = [img for img in all_files if not img.startswith('.')]
+    
+    # Get the features path for the current tracklet
+    feature_file_path = os.path.join(current_tracklet_processed_data_dir, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+
+    with open(feature_file_path, 'rb') as f:
+        features = np.load(f)
+    if len(images) <= 2:
+        # Too few images to do pruning on. Just include all of them.
+        # This means indexing into every r of the results object and including all images of the current tracklet across all rounds/
+        for r in range(rounds):
+            results[r] = images
+            
+        # And do not run the pruning algo. Just return here, because the outer loop controls the next tracklet.
+        return results
+
+    # If we reached this point, we have enough data to run pruning on.
+    cleaned_data = features
+    for r in range(rounds):
+        # Fit a Gaussian distribution to the data
+        mu = np.mean(cleaned_data, axis=0)
+
+        euclidean_distance = np.linalg.norm(features - mu, axis = 1)
+
+        mean_euclidean_distance = np.mean(euclidean_distance)
+        std = np.std(euclidean_distance)
+        th = threshold * std
+
+        # Remove outliers from the data
+        cleaned_data = features[(euclidean_distance - mean_euclidean_distance) <= threshold]
+        cleaned_data_indexes = np.where((euclidean_distance - mean_euclidean_distance)<= threshold)[0]
+
+        for i in cleaned_data_indexes:
+            # Access the value array for this round (implicitly for this tracklet as this file is for this tracklet and only this tracklet)
+            results[r].append(images[i])
+
+    for r in range(rounds):
+        result_file_name = f"main_subject_gauss_th={threshold}_r={r + 1}.json"
+        with open(os.path.join(feature_folder, result_file_name), "w") as outfile:
+            json.dump(results[r], outfile)
+
+    return results
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--current_tracklet_images_input_dir', help="Path to the raw images for the current tracklet", required=True)
+    parser.add_argument('--current_tracklet_processed_data_dir', help="Path to the processed output data dir for the current tracklet", required=True)
     parser.add_argument('--threshold', type=float, default=3.5, help="Offset threshold for (distance - mean_dist)")
     parser.add_argument('--rounds', type=int, default=3, help="Number of rounds for iterative outlier filtering")
     parser.add_argument('--suppress_logging', action='store_true', help="Suppress logging output")
