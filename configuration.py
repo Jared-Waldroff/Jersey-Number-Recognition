@@ -19,6 +19,8 @@ dataset = {'SoccerNet':
                  'sim_filtered': 'main_subject_0.4.json',
                  'gauss_filtered': 'main_subject_gauss_th=3.5_r=3.json',
                  'soccer_ball_list': 'soccer_ball.json',
+                 'legible_result': 'legible_results.json',
+                 'illegible_result': 'illegible_results.json',
                  'test': {
                         'images': 'test/images',
                         'gt': 'test/test_gt.json',

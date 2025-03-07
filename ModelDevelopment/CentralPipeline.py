@@ -16,6 +16,7 @@ import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
+from tqdm import tqdm
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -44,7 +45,7 @@ class CentralPipeline:
     self.image_enhancer = ImageEnhancement()
     
     # When the pipeline is first instantiated, ensure the use has all the necessary paths
-    self.data_preprocessor.create_data_dirs()
+    self.data_preprocessor.create_data_dirs(self.input_data_path, self.output_processed_data_path)
     
     # Check if the input directory exists. If not, tell the user.
     if not os.path.exists(self.input_data_path):
@@ -74,20 +75,22 @@ class CentralPipeline:
         num_tracklets = self.total_tracklets
     
     data_dict = self.data_preprocessor.generate_features(self.input_data_path, self.output_processed_data_path, num_tracks=num_tracklets, tracks=self.tracklets)
-    all_tracklets = list(data_dict.keys())
+    
+    # This is different than the total possible universe since we impose a cap through the generate_features call
+    self.tracklets_to_process = list(data_dict.keys())
     
     num_images = 0
-    for tracklet in all_tracklets:
+    for tracklet in tqdm(self.tracklets_to_process, desc="Central Pipeline Progress"):
         images = data_dict[tracklet]
         if num_images_per_tracklet is not None:
             images = images[:num_images_per_tracklet]
             
-        tracklet_data_file_stub = f"{tracklet}{CommonConstants.FEATURE_DATA_FILE_POSTFIX.value}"
+        tracklet_data_file_stub = f"features.npy"
             
         if not self.use_cache:
           # User does not want to use any cached tracklet feature data.
           # Delete the cached data if it exists before proceeding
-          tracklet_feature_file = os.path.join(self.output_processed_data_path, tracklet_data_file_stub)
+          tracklet_feature_file = os.path.join(self.output_processed_data_path, tracklet, tracklet_data_file_stub)
           if os.path.exists(tracklet_feature_file):
             os.remove(tracklet_feature_file)
             self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
@@ -107,20 +110,26 @@ class CentralPipeline:
                 # The reason for this is because it does pre-processing implicitly in the constructor.
                 # If we call it once for every image, pre-processing runs by-image. Otherwise, it is by tracklet.
                 pipeline = ImageBatchPipeline(raw_image_tensor_batch=image,
-                                              output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
+                                              output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
                                               model=ModelUniverse.DUMMY.value,
                                               display_transformed_image_sample=display_flag,
                                               suppress_logging=self.suppress_logging,
                                               use_cache=self.use_cache,
-                                              output_processed_data_path=self.output_processed_data_path)
+                                              input_data_path=self.input_data_path,
+                                              output_processed_data_path=self.output_processed_data_path,
+                                              tracklets_to_process=self.tracklets_to_process
+                                              )
                 pipeline.run_model_chain()
         else:
             # Process the entire batch of images for the whole tracklet
             pipeline = ImageBatchPipeline(raw_image_tensor_batch=images,
-                                          output_feature_data_file=os.path.join(self.output_processed_data_path, tracklet_data_file_stub),
+                                          output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
                                           model=ModelUniverse.DUMMY.value,
                                           display_transformed_image_sample=self.display_transformed_image_sample,
                                           suppress_logging=self.suppress_logging,
                                           use_cache=self.use_cache,
-                                          output_processed_data_path=self.output_processed_data_path)
+                                          input_data_path=self.input_data_path,
+                                          output_processed_data_path=self.output_processed_data_path,
+                                          tracklets_to_process=self.tracklets_to_process
+                                          )
             pipeline.run_model_chain()

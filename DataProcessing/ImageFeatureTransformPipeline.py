@@ -1,6 +1,6 @@
 from DataProcessing.Logger import CustomLogger
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
-from DataProcessing.DataPreProcessing import DataPaths
+from DataProcessing.DataPreProcessing import DataPaths, CommonConstants
 from reid.CentroidsReidRepo.train_ctl_model import CTLModel
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
 import torch
@@ -9,9 +9,9 @@ import numpy as np
 import subprocess
 
 class ImageFeatureTransformPipeline:
-    def __init__(self, raw_image_batch, output_feature_data_file, model_version='res50_market', suppress_logging: bool=False, use_cache: bool=True):
+    def __init__(self, raw_image_batch, output_tracklet_processed_data_path, model_version='res50_market', suppress_logging: bool=False, use_cache: bool=True):
         self.raw_image_batch = raw_image_batch
-        self.output_feature_data_file = output_feature_data_file
+        self.output_tracklet_processed_data_path = output_tracklet_processed_data_path
         self.model_version = model_version
         self.suppress_logging = suppress_logging
         self.use_cache = use_cache
@@ -33,7 +33,7 @@ class ImageFeatureTransformPipeline:
         command = [
             "python",
             f"{DataPaths.STREAMLINED_PIPELINE.value}\\gaussian_outliers.py",
-            "--feature_file", self.output_feature_data_file
+            "--tracklet_processed_data_path", self.output_tracklet_processed_data_path
         ]
         if self.suppress_logging:
             command.append("--suppress_logging")
@@ -62,7 +62,7 @@ class ImageFeatureTransformPipeline:
         
         Args:
             self.raw_image_batch (torch.Tensor): Input tensor (C, H, W) or (N, C, H, W).
-            self.output_feature_data_file (str): File path to save the features.
+            self.output_tracklet_processed_data_path (str): File path to save the features.
             self.model_version (str): Version key to select model configuration.
         
         Returns:
@@ -95,16 +95,18 @@ class ImageFeatureTransformPipeline:
         # global_feat shape: (N, d). We keep the batch dimension.
         processed_image = global_feat.cpu().numpy()  # shape: (N, d)
         
-        # Append new features to self.output_feature_data_file:
+        # Append new features to self.output_tracklet_processed_data_path:
         # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
         # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
-        if os.path.exists(self.output_feature_data_file):
-            existing = np.load(self.output_feature_data_file, allow_pickle=True)
+        output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+        if os.path.exists(output_file):
+            existing = np.load(self.output_tracklet_processed_data_path, allow_pickle=True)
             combined = np.concatenate([existing, processed_image], axis=0)
-            np.save(self.output_feature_data_file, combined)
+            
+            np.save(output_file, combined)
         else:
-            np.save(self.output_feature_data_file, processed_image)
-        self.logger.info(f"Saved features for tracklet with shape {processed_image.shape}")
+            np.save(output_file, processed_image)
+        self.logger.info(f"Saved features for tracklet with shape {processed_image.shape} to {output_file}")
             
         return processed_image
     
@@ -115,7 +117,7 @@ class ImageFeatureTransformPipeline:
         Steps:
           1. Accept a raw image (tensor, file path, or PIL Image) and convert it to a normalized tensor.
           2. Pass the tensor through the centroid model for resizing, cropping, and keyframe identification.
-          3. Save the processed features to self.output_feature_data_file.
+          3. Save the processed features to self.output_tracklet_processed_data_path.
         
         Returns:
           np.ndarray: The flattened feature vector for the input image.

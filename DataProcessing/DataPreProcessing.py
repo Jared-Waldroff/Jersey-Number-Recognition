@@ -39,6 +39,7 @@ class DataPaths(Enum):
     REID_MODEL_1 = str(Path(REID_PRE_TRAINED) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
     REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
     REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
+    RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'legibility_resnet34_soccer_20240215.pth')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
@@ -46,7 +47,7 @@ class DataPaths(Enum):
     STREAMLINED_PIPELINE = str(Path.cwd().parent.parent / 'StreamlinedPipelineScripts')
 
 class CommonConstants(Enum):
-    FEATURE_DATA_FILE_POSTFIX = "_features.npy"
+    FEATURE_DATA_FILE_NAME = "features.npy"
 
 class DataPreProcessing:
     def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
@@ -66,7 +67,7 @@ class DataPreProcessing:
             for data_path in DataPaths:
                 logging.info(f"{data_path.name}: {data_path.value}")
         
-    def create_data_dirs(self):
+    def create_data_dirs(self, input_data_path, output_processed_data_path):
         # For every entry in DataPaths, create a directory if it doesn't exist,
         # but skip entries that appear to be files (i.e. have a non-empty suffix).
         for data_path in DataPaths:
@@ -76,6 +77,13 @@ class DataPreProcessing:
             if not path.exists():
                 os.makedirs(path)
                 logging.info(f"Created directory: {data_path.value}")
+        
+        # Step 2: Create the processed tracklet data dirs
+        # Call get_tracks from input dir and create a directory for every tracklet inside the output_processed_data_path
+        tracks, _ = self.get_tracks(input_data_path)
+        for track in tracks:
+            if not os.path.exists(os.path.join(output_processed_data_path, track)):
+                os.makedirs(os.path.join(output_processed_data_path, track))
 
     def get_tracks(self, input_folder):
         # Ignore hidden files

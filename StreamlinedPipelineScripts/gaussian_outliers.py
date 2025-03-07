@@ -8,10 +8,12 @@ import sys
 # Add the parent path to the sys path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
+# Import the config after adding the parent path
+from configuration import dataset as config
 from DataProcessing.Logger import CustomLogger
+from DataProcessing.DataPreProcessing import CommonConstants
 
-
-def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_logging: bool=False, use_cache: bool=True):
+def filter_outliers(tracklet_processed_data_path, threshold: float=3.5, rounds: int=3, suppress_logging: bool=False, use_cache: bool=True):
     """
     Process a single feature file (a .npy file) containing feature vectors for a tracklet.
     Iteratively filters out outliers based on the Euclidean distance from the mean of
@@ -30,7 +32,7 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
           # and record the inlier indices.
     
     Args:
-        feature_file (str): Path to the .npy feature file (features of shape (N, d)).
+        tracklet_processed_data_path (str): Path to the .npy feature file (features of shape (N, d)).
         threshold (float): The raw offset threshold for (distance - mean).
         rounds (int): Number of iterations for outlier filtering.
         
@@ -38,6 +40,7 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
         dict: A dictionary mapping round number (0-indexed) -> list of inlier indices (from the original feature matrix).
     """
     logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
+    feature_file = os.path.join(tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
     logger.info(f"Loading features from {feature_file}")
     features = np.load(feature_file, allow_pickle=True)
     N = features.shape[0]
@@ -48,7 +51,10 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
     cleaned_data = features.copy()
     cleaned_indices = indices.copy()
     
-    out_json = os.path.splitext(feature_file)[0] + f"_gauss_th={threshold}_r={rounds}.json"
+    # NOTE: The file name is being hardcoded to be the one from the config.
+    # The reason for this is that these params are dynamic, and should be updated in the config as well.
+    # We need a deterministic way to know the file name as if it is purely dynamic, other scripts won't know what it is called.
+    out_json = os.path.join(tracklet_processed_data_path, config['SoccerNet']['gauss_filtered'])
 
     if not use_cache:
         if os.path.exists(out_json):
@@ -87,7 +93,7 @@ def filter_outliers(feature_file, threshold: float=3.5, rounds: int=3, suppress_
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--feature_file', help="Path to the .npy feature file for a tracklet", required=True)
+    parser.add_argument('--tracklet_processed_data_path', help="Path to the .npy feature file for a tracklet", required=True)
     parser.add_argument('--threshold', type=float, default=3.5, help="Offset threshold for (distance - mean_dist)")
     parser.add_argument('--rounds', type=int, default=3, help="Number of rounds for iterative outlier filtering")
     parser.add_argument('--suppress_logging', action='store_true', help="Suppress logging output")
@@ -95,7 +101,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     filter_outliers(
-        args.feature_file,
+        args.tracklet_processed_data_path,
         threshold=args.threshold,
         rounds=args.rounds,
         suppress_logging=args.suppress_logging,
