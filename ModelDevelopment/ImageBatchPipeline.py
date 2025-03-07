@@ -79,8 +79,6 @@ class ImageBatchPipeline:
 
     def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
-        self.logger.info("HERE")
-        self.logger.info(self.tracklets_to_process)
         
         if use_filtered:
             if filter == 'sim':
@@ -108,20 +106,20 @@ class ImageBatchPipeline:
                 self.tracklets_to_process = self.tracklets_to_process
 
         # Loop over our subset of the available universe
-        for directory in tqdm(self.tracklets_to_process):
-            track_dir = os.path.join(self.input_data_path, directory)
-            if use_filtered:
-                images = filtered[directory]
-            else:
-                images = os.listdir(track_dir)
-            images_full_path = [os.path.join(track_dir, str(x)) for x in images]
-            track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
-            legible = list(np.nonzero(track_results))[0]
-            if len(legible) == 0:
-                self.illegible_tracklets.append(directory)
-            else:
-                legible_images = [images_full_path[i] for i in legible]
-                self.legible_tracklets[directory] = legible_images
+        # NOTE: This part is not ready yet.
+        if use_filtered:
+            images = filtered # We maintain one file per tracklet
+        else:
+            images = self.tracklets_to_process
+        images_full_path = [os.path.join(self.input_data_path, str(x)) for x in images]
+        print(images_full_path)
+        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
+        legible = list(np.nonzero(track_results))[0]
+        if len(legible) == 0:
+            self.illegible_tracklets.append(directory)
+        else:
+            legible_images = [images_full_path[i] for i in legible]
+            self.legible_tracklets[directory] = legible_images
                 
         # Create dir under output_processed_data_path
         legible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['legible_result'])
