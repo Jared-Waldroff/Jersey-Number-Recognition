@@ -107,6 +107,7 @@ class ImageBatchPipeline:
                         updated_tracklets.append(track)
                 self.tracklets_to_process = self.tracklets_to_process
 
+        # Loop over our subset of the available universe
         for directory in tqdm(self.tracklets_to_process):
             track_dir = os.path.join(self.input_data_path, directory)
             if use_filtered:
@@ -114,7 +115,7 @@ class ImageBatchPipeline:
             else:
                 images = os.listdir(track_dir)
             images_full_path = [os.path.join(track_dir, str(x)) for x in images]
-            track_results = lc.run(images_full_path, config.dataset['SoccerNet']['legibility_model'], arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
+            track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
             legible = list(np.nonzero(track_results))[0]
             if len(legible) == 0:
                 self.illegible_tracklets.append(directory)
