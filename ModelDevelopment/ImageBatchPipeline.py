@@ -151,7 +151,7 @@ class ImageBatchPipeline:
             images = os.listdir(self.input_data_path)
         
         # images_full_path is either filtered down now or just all images
-        images_full_path = [os.path.join(self.input_data_path, str(x)) for x in images]
+        images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
 
         # Ship these images over to the legibility classifier
         track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
@@ -164,12 +164,12 @@ class ImageBatchPipeline:
             self.legible_tracklets[self.current_tracklet_number] = legible_images
                 
         # Create dir under output_processed_data_path
-        legible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['legible_result'])
-        illegible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
+        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+        illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
         
         # NOTE: When saving results, save them to the lookup table at the appropriate key (this tracklet)
-        self.save_json_results(self, legible_results_path, self.legible_tracklets, "legible_tracklets")
-        self.save_json_results(self, illegible_results_path, self.illegible_tracklets, "illegible_tracklets")
+        self.save_json_results(legible_results_path, self.legible_tracklets, "legible_tracklets")
+        self.save_json_results(illegible_results_path, self.illegible_tracklets, "illegible_tracklets")
         self.logger.info("Legibility classification complete.")
     
     def pass_through_improved_str(self, layer_moe: bool=False, layer_rac: bool=False):
