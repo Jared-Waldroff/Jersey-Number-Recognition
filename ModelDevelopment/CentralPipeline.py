@@ -110,8 +110,8 @@ class CentralPipeline:
       
   def init_legibility_classifier_data_file(self):
       self.logger.info("Creating placeholder data files for Legibility Classifier.")
-      legible_results_path = os.path.join(self.output_processed_data_path, config.dataset['SoccerNet']['legible_result'])
-      illegible_results_path = os.path.join(self.output_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
+      legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+      illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
       
       # Legible data pattern: {tracklet_number: [list of image numbers]}
       for tracklet in self.tracklets_to_process:
@@ -179,7 +179,8 @@ class CentralPipeline:
                                                 use_cache=self.use_cache,
                                                 input_data_path=self.input_data_path,
                                                 output_processed_data_path=self.output_processed_data_path,
-                                                tracklets_to_process=self.tracklets_to_process
+                                                tracklets_to_process=self.tracklets_to_process,
+                                                common_processed_data_dir=self.common_processed_data_dir
                                                 )
                   pipeline.run_model_chain()
           else:
@@ -193,6 +194,7 @@ class CentralPipeline:
                                             use_cache=self.use_cache,
                                             input_data_path=self.input_data_path,
                                             output_processed_data_path=self.output_processed_data_path,
-                                            tracklets_to_process=self.tracklets_to_process
+                                            tracklets_to_process=self.tracklets_to_process,
+                                            common_processed_data_dir=self.common_processed_data_dir
                                             )
               pipeline.run_model_chain()

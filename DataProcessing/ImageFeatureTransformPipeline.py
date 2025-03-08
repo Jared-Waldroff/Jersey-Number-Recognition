@@ -9,12 +9,24 @@ import numpy as np
 import subprocess
 
 class ImageFeatureTransformPipeline:
-    def __init__(self, raw_image_batch, output_tracklet_processed_data_path, model_version='res50_market', suppress_logging: bool=False, use_cache: bool=True):
+    def __init__(self,
+                 raw_image_batch,
+                 output_tracklet_processed_data_path,
+                 current_tracklet_images_input_dir,
+                 current_tracklet_processed_data_dir,
+                 common_processed_data_dir,
+                 model_version='res50_market',
+                 suppress_logging: bool=False,
+                 use_cache: bool=True):
         self.raw_image_batch = raw_image_batch
         self.output_tracklet_processed_data_path = output_tracklet_processed_data_path
         self.model_version = model_version
         self.suppress_logging = suppress_logging
         self.use_cache = use_cache
+        
+        self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
+        self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir
+        self.common_processed_data_dir = common_processed_data_dir
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.use_cuda = (self.device.type == 'cuda')
@@ -33,7 +45,9 @@ class ImageFeatureTransformPipeline:
         command = [
             "python",
             f"{DataPaths.STREAMLINED_PIPELINE.value}\\gaussian_outliers.py",
-            "--tracklet_processed_data_path", self.output_tracklet_processed_data_path
+            "--current_tracklet_images_input_dir", self.current_tracklet_images_input_dir,
+            "--current_tracklet_processed_data_dir", self.current_tracklet_processed_data_dir,
+            "--common_processed_data_dir", self.common_processed_data_dir,
         ]
         if self.suppress_logging:
             command.append("--suppress_logging")

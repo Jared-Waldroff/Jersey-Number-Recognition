@@ -31,6 +31,7 @@ class ImageBatchPipeline:
                 input_data_path: DataPaths,
                 current_tracklet_number: int,
                 tracklets_to_process: list,
+                common_processed_data_dir: DataPaths,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
                 use_cache: bool=True):
@@ -41,12 +42,17 @@ class ImageBatchPipeline:
         self.use_cache = use_cache
         self.tracklets_to_process = tracklets_to_process
         self.current_tracklet_number = current_tracklet_number
+        self.common_processed_data_dir = common_processed_data_dir
         self.output_processed_data_path = output_processed_data_path
+        self.suppress_logging = suppress_logging
         self.image_feature_transform = ImageFeatureTransformPipeline(
-          raw_image_batch=raw_tracklet_images_tensor,
-          output_tracklet_processed_data_path=output_tracklet_processed_data_path,
-          suppress_logging=suppress_logging,
-          use_cache=use_cache)
+          current_tracklet_images_input_dir=os.path.join(self.input_data_path, str(current_tracklet_number)),
+          current_tracklet_processed_data_dir=self.output_tracklet_processed_data_path,
+          common_processed_data_dir=self.common_processed_data_dir,
+          raw_image_batch=self.raw_tracklet_images_tensor,
+          output_tracklet_processed_data_path=self.output_tracklet_processed_data_path,
+          suppress_logging=self.suppress_logging,
+          use_cache=self.use_cache)
         self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
