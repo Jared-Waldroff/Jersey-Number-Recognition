@@ -110,6 +110,12 @@ class ImageFeatureTransformPipeline:
             
         return processed_image
     
+    def pass_through_soccer_ball_filter(self):
+        self.logger.info("Determine soccer balls in image(s) using pre-trained model.")
+        #image_dir = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.IMAGE_DIR_NAME.value)
+        #success = helpers.identify_soccer_balls(image_dir, soccer_ball_list)
+        #print("Done determine soccer ball")
+    
     def run_image_transform_pipeline(self):
         """
         Process a single raw image through the centroid model pipeline.
@@ -122,5 +128,6 @@ class ImageFeatureTransformPipeline:
         Returns:
           np.ndarray: The flattened feature vector for the input image.
         """
+        self.pass_through_soccer_ball_filter()
         self.pass_through_reid_centroid()  
         self.pass_through_gaussian_outliers_filter()
