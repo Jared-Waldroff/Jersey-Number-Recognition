@@ -73,7 +73,6 @@ def get_soccer_net_legibility_results(args, use_filtered = False, filter = 'sim'
             filtered = json.load(f)
     
     # Filtered is going to be a json of this structure: \main_subject_gaus_th=3.5_r=3: {0: [], 1: [], ..., n: []}
-
     legible_tracklets = {}
     illegible_tracklets = []
 

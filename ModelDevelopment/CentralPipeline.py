@@ -17,6 +17,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
 from tqdm import tqdm
+import configuration as config
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -69,8 +70,44 @@ class CentralPipeline:
     
     self.DISP_IMAGE_CAP = 1
     
+  def init_gaussian_outliers(self):
+    # Initialize Gaussian Outliers   
+    # If the n number of main results jsons have not been created yet, initialize results to be for all global data.
+    # Then write the placeholders to the file before even collecting data.
+    # Once that is done (or if jsons already exist), default back to results[r] = [] (single tracklet case)
+    # At the end, load the JSON and use the current round and tracklet key to index into the result dict, then save it.
+    # This is computationally ok because this is light-weight JSON data. Easy numbers.
+    
+    # Step 1: Access the params from the config
+    gauss_config = config.dataset['SoccerNet']['gauss_filtered']
+    filename = gauss_config['filename']
+    threshold = gauss_config['th']
+    rounds = gauss_config['r']
+          
+    # Preliminary step: create placeholder data files.
+    # This is necessary because we are creating the whole lookup table for all tracklets whereas this function runs on a single tracklet.
+    # It is ok for this to run 3 times 
+    self.logger.info("Creating placeholder data files for Gaussian Outliers.")
+    for r in range(rounds):
+        # Construct fstub
+        result_file_name = f"{filename}_th={threshold}_r={r+1}"
+        
+        # Check if the result_file_name exists in the common_processed_data_dir
+        result_file_path = os.path.join(common_processed_data_dir, result_file_name)
+        
+        # If it does not exist, create it with the empty dict
+        if not os.path.exists(result_file_path):
+            try:
+              self.logger.info(f"Initializing data file: {result_file_path}")
+              with open(result_file_path, "w") as outfile:
+                  json.dump({x: [] for x in tracks}, outfile)
+            catch Exception as e:
+              self.logger.error(f"Error creating placeholder data file: {result_file_path}")
+    
   def run_soccernet(self, num_tracklets=None, num_images_per_tracklet=None):
     self.logger.info("Running the SoccerNet pipeline.")
+    self.init_gaussian_outliers()
+    
     if num_tracklets is None:
         num_tracklets = self.total_tracklets
     
