@@ -14,6 +14,7 @@ from DataProcessing.Logger import CustomLogger
 from DataProcessing.DataPreProcessing import CommonConstants, DataPaths
 
 def filter_outliers(
+    current_tracklet: str,
     current_tracklet_images_input_dir: DataPaths,
     current_tracklet_processed_data_dir: DataPaths,
     common_processed_data_dir: DataPaths,
@@ -60,6 +61,8 @@ def filter_outliers(
     # Inside ImageBatchPipeline, retrieve the gaussian outliers JSON for that tracklet
     # Then parse the 'gauss_filtered' value from the configuration file, access the r to extract
     # Then index into that gauss_filtered json so that we do images = gauss_filtered[r]. Problem solved.
+    
+    logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
     
     results = {}
     
@@ -116,22 +119,28 @@ def filter_outliers(
         if not os.path.exists(result_file_path):
             raise FileNotFoundError(f"File not found: {result_file_path}. This should have been created in CentralPipeline.")
         
-        with open(result_file_path, 'w') as f:
+        #logger.info(f"Inside guassian_outliers.py: {result_file_path}")
+        #logger.info(f"Results: {results[r]}")
+        
+        # Open in read+write mode
+        with open(result_file_path, 'r+') as f:
             data = json.load(f)
-            data_for_this_tracklet = data[tracklet] #= results[r]
+            data_for_this_tracklet = data.get(current_tracklet, [])
             
-            # Do not write anything
+            # If using cache and there's already data, skip updating
             if use_cache and len(data_for_this_tracklet) > 0:
                 continue
             else:
-                # Write the data
-                data[tracklet] = results[r]
-                json.dump(data, f)
+                data[current_tracklet] = results[r]
+                f.seek(0)
+                json.dump(data, f, indent=4)
+                f.truncate()
                 
     return results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--current_tracklet', help="Current tracklet number", required=True)
     parser.add_argument('--current_tracklet_images_input_dir', help="Path to the raw images for the current tracklet", required=True)
     parser.add_argument('--current_tracklet_processed_data_dir', help="Path to the processed output data dir for the current tracklet", required=True)
     parser.add_argument('--common_processed_data_dir', help="Path to the shared processed data output for the test/train/challenge data", required=True)
@@ -142,6 +151,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     filter_outliers(
+        current_tracklet=args.current_tracklet,
         current_tracklet_images_input_dir=args.current_tracklet_images_input_dir,
         current_tracklet_processed_data_dir=args.current_tracklet_processed_data_dir,
         common_processed_data_dir=args.common_processed_data_dir,

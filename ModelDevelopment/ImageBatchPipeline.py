@@ -46,6 +46,7 @@ class ImageBatchPipeline:
         self.output_processed_data_path = output_processed_data_path
         self.suppress_logging = suppress_logging
         self.image_feature_transform = ImageFeatureTransformPipeline(
+          current_tracklet_number=current_tracklet_number,
           current_tracklet_images_input_dir=os.path.join(self.input_data_path, str(current_tracklet_number)),
           current_tracklet_processed_data_dir=self.output_tracklet_processed_data_path,
           common_processed_data_dir=self.common_processed_data_dir,

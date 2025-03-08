@@ -11,6 +11,7 @@ import subprocess
 class ImageFeatureTransformPipeline:
     def __init__(self,
                  raw_image_batch,
+                 current_tracklet_number,
                  output_tracklet_processed_data_path,
                  current_tracklet_images_input_dir,
                  current_tracklet_processed_data_dir,
@@ -23,6 +24,7 @@ class ImageFeatureTransformPipeline:
         self.model_version = model_version
         self.suppress_logging = suppress_logging
         self.use_cache = use_cache
+        self.current_tracklet_number = current_tracklet_number
         
         self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
         self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir
@@ -45,6 +47,7 @@ class ImageFeatureTransformPipeline:
         command = [
             "python",
             f"{DataPaths.STREAMLINED_PIPELINE.value}\\gaussian_outliers.py",
+            "--current_tracklet", self.current_tracklet_number,
             "--current_tracklet_images_input_dir", self.current_tracklet_images_input_dir,
             "--current_tracklet_processed_data_dir", self.current_tracklet_processed_data_dir,
             "--common_processed_data_dir", self.common_processed_data_dir,
@@ -57,9 +60,11 @@ class ImageFeatureTransformPipeline:
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
             self.logger.info(result.stdout)  # Print logs from gaussian_outliers_streamlined.py
-            #self.logger.error(result.stderr)
+            self.logger.error(result.stderr)
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running gaussian_outliers_streamlined.py: {e}")
+            # Log the stdout and stderr from the exception (if available)
+            self.logger.info(e.stdout)
             self.logger.error(e.stderr)
         
         self.logger.info("Done removing outliers")
