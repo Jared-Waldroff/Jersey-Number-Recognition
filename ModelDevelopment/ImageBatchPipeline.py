@@ -107,28 +107,29 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
+    # TODO: ENABLE SOCCER BALL FILTER ONCE COMPLETE!
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=False):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         if use_filtered:
             if filter == 'sim': # Do not use
-                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['sim_filtered'])
+                path_to_filter_results = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['sim_filtered'])
             else:
                 # Access the params from the config and determine which data file to pull from
                 gauss_config = config.dataset['SoccerNet']['gauss_filtered']
                 filename = gauss_config['filename']
                 threshold = gauss_config['th']
                 rounds = gauss_config['r']
-                gaussian_filter_lookup_table = f"{filename}_th={threshold}_r={rounds}"
+                gaussian_filter_lookup_table = f"{filename}_th={threshold}_r={rounds}.json"
             
-                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, gaussian_filter_lookup_table)
+                path_to_filter_results = os.path.join(self.common_processed_data_dir, gaussian_filter_lookup_table)
             
             with open(path_to_filter_results, 'r') as f:
                 filtered = json.load(f)
 
         if exclude_balls:
             updated_tracklets = []
-            soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
+            soccer_ball_list = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
             
             # Check if the soccer_ball_list even exists first, and if not, skip
             if not os.path.exists(soccer_ball_list):
@@ -144,7 +145,7 @@ class ImageBatchPipeline:
                 self.tracklets_to_process = self.tracklets_to_process
 
         if use_filtered:
-            images = filtered[current_tracklet_number]
+            images = filtered[self.current_tracklet_number]
         else:
             # Otherwise no keep list, just all of them
             images = os.listdir(self.input_data_path)
