@@ -45,7 +45,11 @@ class CentralPipeline:
     self.use_cache = use_cache
     self.suppress_logging = suppress_logging
     
-    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
+    self.data_preprocessor = DataPreProcessing(
+      display_transformed_image_sample=self.display_transformed_image_sample,
+      num_image_samples=self.num_image_samples,
+      suppress_logging=self.suppress_logging
+      )
     self.image_enhancer = ImageEnhancement()
     
     # When the pipeline is first instantiated, ensure the use has all the necessary paths

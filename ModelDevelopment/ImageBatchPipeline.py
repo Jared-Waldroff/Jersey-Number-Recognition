@@ -77,7 +77,7 @@ class ImageBatchPipeline:
           output_tracklet_processed_data_path=self.output_tracklet_processed_data_path,
           suppress_logging=self.suppress_logging,
           use_cache=self.use_cache)
-        self.data_preprocessor = DataPreProcessing(suppress_logging=False) # No need for double logging as CentralPipeline already instantiates it
+        self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
         self.legible_tracklets = {}
