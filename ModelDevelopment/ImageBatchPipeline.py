@@ -130,7 +130,6 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    # TODO: ENABLE SOCCER BALL FILTER ONCE COMPLETE!
     def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
