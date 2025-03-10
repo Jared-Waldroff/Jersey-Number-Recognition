@@ -7,6 +7,8 @@ import torch
 import os
 import numpy as np
 import subprocess
+import json
+import cv2
 
 class ImageFeatureTransformPipeline:
     def __init__(self,
@@ -16,6 +18,9 @@ class ImageFeatureTransformPipeline:
                  current_tracklet_images_input_dir,
                  current_tracklet_processed_data_dir,
                  common_processed_data_dir,
+                 run_soccer_ball_filter: bool,
+                 generate_features: bool,
+                 run_filter: bool,
                  model_version='res50_market',
                  suppress_logging: bool=False,
                  use_cache: bool=True):
@@ -25,6 +30,9 @@ class ImageFeatureTransformPipeline:
         self.suppress_logging = suppress_logging
         self.use_cache = use_cache
         self.current_tracklet_number = current_tracklet_number
+        self.run_soccer_ball_filter = run_soccer_ball_filter
+        self.generate_features = generate_features
+        self.run_filter = run_filter
         
         self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
         self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir
@@ -127,13 +135,81 @@ class ImageFeatureTransformPipeline:
             np.save(output_file, processed_image)
         self.logger.info(f"Saved features for tracklet with shape {processed_image.shape} to {output_file}")
             
-        return processed_image
-    
+        return processed_image        
+        
     def pass_through_soccer_ball_filter(self):
         self.logger.info("Determine soccer balls in image(s) using pre-trained model.")
-        #image_dir = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.IMAGE_DIR_NAME.value)
-        #success = helpers.identify_soccer_balls(image_dir, soccer_ball_list)
-        #print("Done determine soccer ball")
+        HEIGHT_MIN = 35
+        WIDTH_MIN = 30
+
+        # check 10 random images for each track, mark as soccer ball if the size matches typical soccer ball size
+        # NOTE: ball_list will always only ever contain 1 tracklet since this function runs once per tracklet
+        ball_list = []
+
+        # Perform the filtering for the current tracklet we are looping over
+        # Skip if not a directory (extra safety check)
+        if not os.path.isdir(self.current_tracklet_images_input_dir):
+            self.logger.warning(f"Skipping tracklet {self.current_tracklet_number} as it is not a directory.")
+            return
+
+        # Filter out hidden files when listing images
+        image_names = [img for img in os.listdir(self.current_tracklet_images_input_dir) if not img.startswith('.')]
+
+        if not image_names:  # Skip if no images found
+            self.logger.warning(f"Skipping tracklet {self.current_tracklet_number} as no images were found.")
+            return
+
+        sample = len(image_names) if len(image_names) < 10 else 10
+        imgs = np.random.choice(image_names, size=sample, replace=False)
+        width_list = []
+        height_list = []
+        for img_name in imgs:
+            img_path = os.path.join(self.current_tracklet_images_input_dir, img_name)
+            img = cv2.imread(img_path)
+            h, w = img.shape[:2]
+            width_list.append(w)
+            height_list.append(h)
+        mean_w, mean_h = np.mean(width_list), np.mean(height_list)
+        if mean_h <= HEIGHT_MIN and mean_w <= WIDTH_MIN:
+            # this must be a soccer ball
+            ball_list.append(track)
+
+        self.logger.info(f"Found {len(ball_list)} balls, Ball list: {ball_list}")
+        
+        # If the soccet_ball_list is not empty, proceed with writing the results to the file
+        if len(ball_list) > 0:
+            # Write the results to the soccer_ball_list
+            # Sanity check: ensure ball list has only 1 element and output a warning if not (should never happen)
+            if len(ball_list) > 1:
+                self.logger.warning(f"Found more than one soccer ball in tracklet {self.current_tracklet_number}. This should not happen.")
+            
+            # Open JSON file in read+write mode
+            try:
+                with open(self.current_tracklet_images_input_dir, 'r+') as fp:
+                    try:
+                        ball_json = json.load(fp)
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"JSON file {self.current_tracklet_images_input_dir} is empty or corrupt. Initializing new JSON structure.")
+                        ball_json = {"ball_tracks": []}
+
+                    if "ball_tracks" not in ball_json:
+                        ball_json["ball_tracks"] = []
+
+                    # Append the tracklet number if it is not already in the list
+                    if self.current_tracklet_number not in ball_json["ball_tracks"]:
+                        ball_json["ball_tracks"].append(self.current_tracklet_number)
+
+                        # Move cursor to the start of the file before writing
+                        fp.seek(0)
+                        json.dump(ball_json, fp, indent=4)
+                        fp.truncate()  # Ensure no leftover content
+
+            except FileNotFoundError:
+                self.logger.warning(f"Soccer ball list file {self.current_tracklet_images_input_dir} not found. Creating a new one.")
+                with open(self.current_tracklet_images_input_dir, 'w') as fp:
+                    json.dump({"ball_tracks": [self.current_tracklet_number]}, fp, indent=4)
+
+            return True
     
     def run_image_transform_pipeline(self):
         """
@@ -147,6 +223,11 @@ class ImageFeatureTransformPipeline:
         Returns:
           np.ndarray: The flattened feature vector for the input image.
         """
-        self.pass_through_soccer_ball_filter()
-        self.pass_through_reid_centroid()  
-        self.pass_through_gaussian_outliers_filter()
+        if self.run_soccer_ball_filter:
+            self.pass_through_soccer_ball_filter()
+            
+        if self.generate_features:
+            self.pass_through_reid_centroid()  
+        
+        if self.run_filter:
+            self.pass_through_gaussian_outliers_filter()
