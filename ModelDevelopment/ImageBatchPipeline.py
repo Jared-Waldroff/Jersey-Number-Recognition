@@ -32,6 +32,16 @@ class ImageBatchPipeline:
                 current_tracklet_number: int,
                 tracklets_to_process: list,
                 common_processed_data_dir: DataPaths,
+                run_soccer_ball_filter: bool,
+                generate_features: bool,
+                run_filter: bool,
+                run_legible: bool,
+                run_legible_eval: bool,
+                run_pose: bool,
+                run_crops: bool,
+                run_str: bool,
+                run_combine: bool,
+                run_eval: bool,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
                 use_cache: bool=True):
@@ -45,7 +55,20 @@ class ImageBatchPipeline:
         self.common_processed_data_dir = common_processed_data_dir
         self.output_processed_data_path = output_processed_data_path
         self.suppress_logging = suppress_logging
+        self.run_soccer_ball_filter=run_soccer_ball_filter,
+        self.generate_features=generate_features
+        self.run_filter=run_filter,
+        self.run_legible=run_legible,
+        self.run_legible_eval=run_legible_eval,
+        self.run_pose=run_pose,
+        self.run_crops=run_crops,
+        self.run_str=run_str,
+        self.run_combine=run_combine,
+        self.run_eval=run_eval
         self.image_feature_transform = ImageFeatureTransformPipeline(
+          run_soccer_ball_filter=run_soccer_ball_filter,
+          generate_features=generate_features,
+          run_filter=run_filter,
           current_tracklet_number=current_tracklet_number,
           current_tracklet_images_input_dir=os.path.join(self.input_data_path, str(current_tracklet_number)),
           current_tracklet_processed_data_dir=self.output_tracklet_processed_data_path,
@@ -107,8 +130,7 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    # TODO: ENABLE SOCCER BALL FILTER ONCE COMPLETE!
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=False):
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         if use_filtered:
@@ -187,4 +209,5 @@ class ImageBatchPipeline:
         self.logger.info("Running model chain on preprocessed image(s).")
         
         # Step 1: Legibility Classifier
-        self.pass_through_legibility_classifier()
+        if self.run_legible:
+            self.pass_through_legibility_classifier()

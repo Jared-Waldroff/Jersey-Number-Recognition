@@ -45,7 +45,11 @@ class CentralPipeline:
     self.use_cache = use_cache
     self.suppress_logging = suppress_logging
     
-    self.data_preprocessor = DataPreProcessing(display_transformed_image_sample=self.display_transformed_image_sample, num_image_samples=self.num_image_samples)
+    self.data_preprocessor = DataPreProcessing(
+      display_transformed_image_sample=self.display_transformed_image_sample,
+      num_image_samples=self.num_image_samples,
+      suppress_logging=self.suppress_logging
+      )
     self.image_enhancer = ImageEnhancement()
     
     # When the pipeline is first instantiated, ensure the use has all the necessary paths
@@ -125,7 +129,45 @@ class CentralPipeline:
           with open(illegible_results_path, "w") as outfile:
               json.dump({'illegible': []}, outfile)
   
-  def run_soccernet(self, num_tracklets=None, num_images_per_tracklet=None):
+  def init_soccer_ball_filter_data_file(self):
+    self.logger.info("Creating placeholder data files for Soccer Ball Filter.")
+    soccer_ball_list_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+    
+    # See if the user specified use_cache=False
+    if self.use_cache is False and os.path.exists(soccer_ball_list_path):
+      os.remove(soccer_ball_list_path)
+      
+    # Create only a single file to contain all tracklets
+    # Check if the file  exists first
+    if not os.path.exists(soccer_ball_list_path):
+        with open(soccer_ball_list_path, "w") as outfile:
+            json.dump({'ball_tracks': []}, outfile)
+            
+            actions = {"soccer_ball_filter": False,
+                       "feat": False,
+                       "filter": False,
+                       "legible": False,
+                       "legible_eval": False,
+                       "pose": False,
+                       "crops": False,
+                       "str": False,
+                       "combine": True,
+                       "eval": True}
+  
+  def run_soccernet(self,
+                    num_tracklets=None,
+                    num_images_per_tracklet=None,
+                    run_soccer_ball_filter=True,
+                    generate_features=True,
+                    run_filter=True,
+                    run_legible=True,
+                    run_legible_eval=True,
+                    run_pose=True,
+                    run_crops=True,
+                    run_str=True,
+                    run_combine=True,
+                    run_eval=True
+                    ):
       self.logger.info("Running the SoccerNet pipeline.")
       
       if num_tracklets is None:
@@ -137,6 +179,7 @@ class CentralPipeline:
       self.tracklets_to_process = list(data_dict.keys())
       
       # IMPORTANT: These init methods require self.tracklets_to_process to exist, so they are called below.
+      self.init_soccer_ball_filter_data_file() # Even if the filter is not used, algo will just ignore the empty file.
       self.init_gaussian_outliers_data_files()
       self.init_legibility_classifier_data_file()
       
@@ -155,46 +198,28 @@ class CentralPipeline:
             if os.path.exists(tracklet_feature_file):
               os.remove(tracklet_feature_file)
               self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
-          
-          # For each tracklet, choose to process the entire batch or each image individually
-          # Regardless of whether we do tracklet-level processing or image-level processing,
-          # There will only be one feature file per tracklet. The difference is if we read into memory the data file n times (n = number of images in tracklet)
-          # or if we only do it once (because we pass the whole tracklet batch). This is excellent for decoupling production code versus research.
-          # For research, we can afford to read/write n times because n may only be 1 or 2 as we just want to test the pipeline on a few images.
-          if self.single_image_pipeline:
-              # Process each image separately
-              for image in images:
-                  display_flag = num_images <= 1
-                  num_images += 1
-                  
-                  # NOTE: This ImageBatchPipeline needs to be instantiated twice.
-                  # The reason for this is because it does pre-processing implicitly in the constructor.
-                  # If we call it once for every image, pre-processing runs by-image. Otherwise, it is by tracklet.
-                  pipeline = ImageBatchPipeline(raw_tracklet_images_tensor=image,
-                                                current_tracklet_number=tracklet,
-                                                output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
-                                                model=ModelUniverse.DUMMY.value,
-                                                display_transformed_image_sample=display_flag,
-                                                suppress_logging=self.suppress_logging,
-                                                use_cache=self.use_cache,
-                                                input_data_path=self.input_data_path,
-                                                output_processed_data_path=self.output_processed_data_path,
-                                                tracklets_to_process=self.tracklets_to_process,
-                                                common_processed_data_dir=self.common_processed_data_dir
-                                                )
-                  pipeline.run_model_chain()
-          else:
-              # Process the entire batch of images for the whole tracklet
-              pipeline = ImageBatchPipeline(raw_tracklet_images_tensor=images,
-                                            current_tracklet_number=tracklet,
-                                            output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
-                                            model=ModelUniverse.DUMMY.value,
-                                            display_transformed_image_sample=self.display_transformed_image_sample,
-                                            suppress_logging=self.suppress_logging,
-                                            use_cache=self.use_cache,
-                                            input_data_path=self.input_data_path,
-                                            output_processed_data_path=self.output_processed_data_path,
-                                            tracklets_to_process=self.tracklets_to_process,
-                                            common_processed_data_dir=self.common_processed_data_dir
-                                            )
-              pipeline.run_model_chain()
+
+          # Process the entire batch of images for the whole tracklet
+          pipeline = ImageBatchPipeline(raw_tracklet_images_tensor=images,
+                                        current_tracklet_number=tracklet,
+                                        output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
+                                        model=ModelUniverse.DUMMY.value,
+                                        display_transformed_image_sample=self.display_transformed_image_sample,
+                                        suppress_logging=self.suppress_logging,
+                                        use_cache=self.use_cache,
+                                        input_data_path=self.input_data_path,
+                                        output_processed_data_path=self.output_processed_data_path,
+                                        tracklets_to_process=self.tracklets_to_process,
+                                        common_processed_data_dir=self.common_processed_data_dir,
+                                        run_soccer_ball_filter=run_soccer_ball_filter,
+                                        generate_features=generate_features,
+                                        run_filter=run_filter,
+                                        run_legible=run_legible,
+                                        run_legible_eval=run_legible_eval,
+                                        run_pose=run_pose,
+                                        run_crops=run_crops,
+                                        run_str=run_str,
+                                        run_combine=run_combine,
+                                        run_eval=run_eval
+                                        )
+          pipeline.run_model_chain()
