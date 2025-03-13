@@ -127,7 +127,7 @@ class ImageFeatureTransformPipeline:
         # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
         output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
         if os.path.exists(output_file):
-            existing = np.load(self.output_tracklet_processed_data_path, allow_pickle=True)
+            existing = np.load(output_file, allow_pickle=True)
             combined = np.concatenate([existing, processed_image], axis=0)
             
             np.save(output_file, combined)
