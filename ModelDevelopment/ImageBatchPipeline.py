@@ -36,7 +36,6 @@ class ImageBatchPipeline:
                 generate_features: bool,
                 run_filter: bool,
                 run_legible: bool,
-                run_legible_eval: bool,
                 run_pose: bool,
                 run_crops: bool,
                 run_str: bool,
@@ -59,7 +58,6 @@ class ImageBatchPipeline:
         self.generate_features=generate_features
         self.run_filter=run_filter,
         self.run_legible=run_legible,
-        self.run_legible_eval=run_legible_eval,
         self.run_pose=run_pose,
         self.run_crops=run_crops,
         self.run_str=run_str,

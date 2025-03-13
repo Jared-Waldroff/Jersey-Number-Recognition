@@ -28,6 +28,7 @@ from DataProcessing.Logger import CustomLogger
 class CentralPipeline:
   def __init__(self,
                input_data_path: DataPaths,
+               gt_data_path: DataPaths,
                output_processed_data_path: DataPaths,
                common_processed_data_dir: DataPaths,
                single_image_pipeline: bool=True,
@@ -37,6 +38,7 @@ class CentralPipeline:
                suppress_logging: bool=False
                ):
     self.input_data_path = input_data_path
+    self.gt_data_path = gt_data_path
     self.output_processed_data_path = output_processed_data_path
     self.common_processed_data_dir = common_processed_data_dir
     self.single_image_pipeline = single_image_pipeline
@@ -154,6 +156,81 @@ class CentralPipeline:
                        "combine": True,
                        "eval": True}
   
+  def is_track_legible(self, track, illegible_list, legible_tracklets):
+      THRESHOLD_FOR_TACK_LEGIBILITY = 0
+      if track in illegible_list:
+          return False
+      try:
+          if len(legible_tracklets[track]) <= THRESHOLD_FOR_TACK_LEGIBILITY:
+              return False
+      except KeyError:
+          return False
+      return True
+  
+  def evaluate_legibility_results(self, load_soccer_ball_list=False):
+      self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
+      illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+      legible_tracklets_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+      
+      with open(legible_tracklets_path, 'r') as legible_tracklets_path:
+          legible_tracklets = json.load(legible_tracklets_path)
+      
+      with open(self.gt_data_path, 'r') as gf:
+          gt_dict = json.load(gf)
+      with open(illegible_path, 'r') as gf:
+          illegible_list = json.load(gf)
+          illegible_list = illegible_list['illegible']
+
+      balls_list = []
+      if load_soccer_ball_list is True:
+          with open(load_soccer_ball_list, 'r') as sf:
+              balls_json = json.load(sf)
+          balls_list = balls_json['ball_tracks']
+
+      correct = 0
+      total = 0
+      TP = 0
+      FP = 0
+      FN = 0
+      TN = 0
+      num_per_tracklet_FP = []
+      num_per_tracklet_TP = []
+      
+      # Key adjustment: Run the classification only on the tracklet subset we care about
+      for track in self.tracklets_to_process:
+          # don't consider soccer balls
+          if track in balls_list:
+              continue
+
+          true_value = str(gt_dict[track])
+          predicted_legible = self.is_track_legible(track, illegible_list, legible_tracklets)
+          if true_value == '-1' and not predicted_legible:
+              #self.logger.info(f"1){track}")
+              correct += 1
+              TN += 1
+          elif true_value != '-1' and predicted_legible:
+              #self.logger.info(f"2){track}")
+              correct += 1
+              TP += 1
+              # if legible_tracklets is not None:
+              #     num_per_tracklet_TP.append(len(legible_tracklets[track]))
+          elif true_value == '-1' and predicted_legible:
+              FP += 1
+              self.logger.info(f"FP:{track}")
+              # if legible_tracklets is not None:
+              #     num_per_tracklet_FP.append(len(legible_tracklets[track]))
+          elif true_value != '-1' and not predicted_legible:
+              FN += 1
+              self.logger.info(f"FN:{track}")
+          total += 1
+
+      self.logger.info(f'Correct {correct} out of {total}. Accuracy {100*correct/total}%.')
+      self.logger.info(f'TP={TP}, TN={TN}, FP={FP}, FN={FN}')
+      Pr = TP / (TP + FP)
+      Recall = TP / (TP + FN)
+      self.logger.info(f"Precision={Pr}, Recall={Recall}")
+      self.logger.info(f"F1={2 * Pr * Recall / (Pr + Recall)}")
+    
   def run_soccernet(self,
                     num_tracklets=None,
                     num_images_per_tracklet=None,
@@ -184,7 +261,7 @@ class CentralPipeline:
       self.init_legibility_classifier_data_file()
       
       num_images = 0
-      for tracklet in tqdm(self.tracklets_to_process, desc="Central Pipeline Progress"):
+      for tracklet in tqdm(self.tracklets_to_process, desc="Phase 1: Data Pre-Processing Pipeline Progress"):
           images = data_dict[tracklet]
           if num_images_per_tracklet is not None:
               images = images[:num_images_per_tracklet]
@@ -215,7 +292,6 @@ class CentralPipeline:
                                         generate_features=generate_features,
                                         run_filter=run_filter,
                                         run_legible=run_legible,
-                                        run_legible_eval=run_legible_eval,
                                         run_pose=run_pose,
                                         run_crops=run_crops,
                                         run_str=run_str,
@@ -223,3 +299,7 @@ class CentralPipeline:
                                         run_eval=run_eval
                                         )
           pipeline.run_model_chain()
+      
+      # Do this after every track is done
+      if run_legible_eval:
+        self.evaluate_legibility_results()
