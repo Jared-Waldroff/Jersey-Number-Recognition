@@ -36,7 +36,6 @@ class ImageBatchPipeline:
                 generate_features: bool,
                 run_filter: bool,
                 run_legible: bool,
-                run_legible_eval: bool,
                 run_pose: bool,
                 run_crops: bool,
                 run_str: bool,
@@ -59,7 +58,6 @@ class ImageBatchPipeline:
         self.generate_features=generate_features
         self.run_filter=run_filter,
         self.run_legible=run_legible,
-        self.run_legible_eval=run_legible_eval,
         self.run_pose=run_pose,
         self.run_crops=run_crops,
         self.run_str=run_str,
@@ -132,6 +130,16 @@ class ImageBatchPipeline:
 
     def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
+        
+        # if self.use_cache, check if we have a cache
+        if self.use_cache:
+            #legible_results_path, self.legible_tracklets,
+            # if legible_results_path has illegible_results.json and legible_results.json, skip
+            legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+            if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
+                self.logger.info("Using existing cache for legibility classifier. Skipping.")
+                return
         
         if use_filtered:
             if filter == 'sim': # Do not use

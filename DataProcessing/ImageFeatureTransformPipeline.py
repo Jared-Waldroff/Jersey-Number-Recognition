@@ -52,6 +52,11 @@ class ImageFeatureTransformPipeline:
         
     def pass_through_gaussian_outliers_filter(self):
         self.logger.info("Identifying and removing outliers by calling gaussian_outliers_streamlined.py on feature file")
+        
+        if self.use_cache and os.path.exists(self.current_tracklet_processed_data_dir):
+            self.logger.info(f"Skipping outlier removal for tracklet {self.current_tracklet_number} as cache exists.")
+            return
+        
         command = [
             "python",
             f"{DataPaths.STREAMLINED_PIPELINE.value}\\gaussian_outliers.py",
@@ -96,6 +101,16 @@ class ImageFeatureTransformPipeline:
             np.ndarray: Flattened feature vector(s) with shape (N, d)
         """
         # Update the ver_to_specs dictionary:
+        # Append new features to self.output_tracklet_processed_data_path:
+        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
+        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
+        output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+        
+        # Check if a cache exists
+        if self.use_cache and os.path.exists(output_file):
+            self.logger.info(f"Feature file {output_file} already exists. Skipping processing.")
+            return
+        
         self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
@@ -122,12 +137,8 @@ class ImageFeatureTransformPipeline:
         # global_feat shape: (N, d). We keep the batch dimension.
         processed_image = global_feat.cpu().numpy()  # shape: (N, d)
         
-        # Append new features to self.output_tracklet_processed_data_path:
-        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
-        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
-        output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
         if os.path.exists(output_file):
-            existing = np.load(self.output_tracklet_processed_data_path, allow_pickle=True)
+            existing = np.load(output_file, allow_pickle=True)
             combined = np.concatenate([existing, processed_image], axis=0)
             
             np.save(output_file, combined)
@@ -139,6 +150,11 @@ class ImageFeatureTransformPipeline:
         
     def pass_through_soccer_ball_filter(self):
         self.logger.info("Determine soccer balls in image(s) using pre-trained model.")
+        
+        if self.use_cache and os.path.exists(self.current_tracklet_images_input_dir):
+            self.logger.info(f"Skipping soccer ball filter for tracklet {self.current_tracklet_number} as cache exists.")
+            return
+        
         HEIGHT_MIN = 35
         WIDTH_MIN = 30
 

@@ -31,6 +31,8 @@ class ModelUniverse(Enum):
 
 class DataPaths(Enum):
     ROOT_DATA_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'extracted')
+    TEST_DATA_GT = str(Path(ROOT_DATA_DIR) / 'test' / 'test_gt.json')
+    TRAIN_DATA_GT = str(Path(ROOT_DATA_DIR) / 'train' / 'train_gt.json')
     TEST_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'test' / 'images')
     TRAIN_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'train' / 'images')
     CHALLENGE_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
