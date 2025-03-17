@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
@@ -12,6 +13,9 @@ class JerseyNumberClassifier(nn.Module):
 
     def forward(self, input):
         return self.model_ft(input)
+    
+# Set device (GPU if available, else CPU)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class JerseyNumberMulticlassClassifier(nn.Module):
 

@@ -81,7 +81,7 @@ class JerseyNumberDataset(Dataset):
         if self.transform:
             image = self.transform(image)
         return image, label
-
+'''
 class JerseyNumberMultitaskDataset(Dataset):
     def __init__(self, annotations_file, img_dir, mode='train'):
         self.transform = data_transforms[mode]
@@ -108,6 +108,74 @@ class JerseyNumberMultitaskDataset(Dataset):
             print(label, digit1, digit2)
         if self.transform:
             image = self.transform(image)
+        return image, label, digit1, digit2
+'''
+# Ensure data transformations are defined correctly
+data_transforms = {
+    'train': transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    'val': transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    'test': transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+}
+
+class JerseyNumberMultitaskDataset(Dataset):
+    def __init__(self, annotations_file, img_dir, mode='train'):
+        self.img_dir = img_dir
+
+        # Ensure mode is valid
+        if mode not in data_transforms:
+            raise ValueError(f"Invalid mode '{mode}', expected one of {list(data_transforms.keys())}")
+
+        self.transform = data_transforms[mode]
+
+        # Load mappings from folder number to jersey number
+        with open(annotations_file, 'r') as f:
+            self.folder_to_label = json.load(f)  # Dictionary { "0": 10, "1": 23, ... }
+
+        self.data = []
+        for folder, jersey_number in self.folder_to_label.items():
+            folder_path = os.path.join(img_dir, folder)  # Full path to the subfolder
+            if not os.path.isdir(folder_path):
+                continue  # Skip if folder does not exist
+
+            for img_name in os.listdir(folder_path):
+                img_path = os.path.join(folder, img_name)
+                if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):  # Ensure valid image files
+                    if 0 < jersey_number < 100:  # Ensure valid jersey number
+                        digit1, digit2 = self.get_digit_labels(jersey_number)
+                        self.data.append((img_path, jersey_number, digit1, digit2))
+
+        print(f"Loaded {len(self.data)} samples from {annotations_file}")
+
+    def __len__(self):
+        return len(self.data)
+
+    def get_digit_labels(self, label):
+        """Extract two-digit jersey numbers."""
+        if label < 10:
+            return label, 10  # Single-digit numbers get (X, 10) padding
+        else:
+            return label // 10, label % 10
+
+    def __getitem__(self, idx):
+        img_name, label, digit1, digit2 = self.data[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)  # ✅ FIX: Now correctly applies transformations
+
         return image, label, digit1, digit2
 
 class UnlabelledJerseyNumberLegibilityDataset(Dataset):
