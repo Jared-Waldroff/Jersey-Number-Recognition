@@ -21,6 +21,11 @@ dataset = {'SoccerNet':
                  'soccer_ball_list': 'soccer_ball.json',
                  'legible_result': 'legible_results.json',
                  'illegible_result': 'illegible_results.json',
+                 'pose_input_json': 'pose_input.json',
+                 'pose_output_json': 'pose_results.json',
+                 'crops_folder': 'crops',
+                 'jersey_id_result': 'jersey_id_results.json',
+                 'final_result': 'final_results.json',
                  'test': {
                         'images': 'test/images',
                         'gt': 'test/test_gt.json',
