@@ -49,6 +49,7 @@ class CentralPipeline:
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
         self.with_conda = False
+        self.loaded_legible_results = None
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -148,6 +149,13 @@ class CentralPipeline:
             with open(soccer_ball_list_path, "w") as outfile:
                 json.dump({'ball_tracks': []}, outfile)
                 
+    def set_legible_results_data(self):
+        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+        
+        if os.path.exists(legible_results_path):
+            with open(legible_results_path, 'r') as openfile:
+                self.loaded_legible_results = json.load(openfile)
+                
     def init_json_for_pose_estimator(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
         
@@ -156,20 +164,13 @@ class CentralPipeline:
             return
         
         self.logger.info("Generating json for pose")
-        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        
-        if os.path.exists(legible_results_path):
-            with open(legible_results_path, 'r') as openfile:
-                legible = json.load(openfile)
-        else:
-            legible = None
-
+        self.set_legible_results_data()
         self.logger.info("Done generating json for pose")
         
         all_files = []
-        if not legible is None:
-            for key in legible.keys():
-                for entry in legible[key]:
+        if not self.loaded_legible_results is None:
+            for key in self.loaded_legible_results.keys():
+                for entry in self.loaded_legible_results[key]:
                     all_files.append(os.path.join(os.getcwd(), entry))
         else:
             for tr in self.tracks_to_process: # Only run this for the subset of the tracklet universe
@@ -211,6 +212,16 @@ class CentralPipeline:
             self.logger.error(e.stderr)  # Log stderr for debugging
 
         self.logger.info("Done detecting pose")
+        
+    def run_crops(self):
+        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
+        
+        self.logger.info("Generate crops")
+        crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
+        Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
+        self.set_legible_results_data()
+        helpers.generate_crops(output_json, crops_destination_dir, self.loaded_legible_results)
+        self.logger.info("Done generating crops")
     
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
@@ -363,3 +374,6 @@ class CentralPipeline:
             
         if run_pose:
             self.run_pose_estimation()
+            
+        if run_crops:
+            self.run_crops()
