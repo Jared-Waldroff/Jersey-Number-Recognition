@@ -15,8 +15,8 @@ root = os.getcwd()
 path_to_coco = os.path.join(root, "xtcocoapi")
 sys.path.append(str(path_to_coco)) # add to PATH
 
-import sys
-sys.path.insert(0, r'c:\Users\colin\OneDrive\Desktop\UBC\Jersey-Number-Recognition\xtcocoapi')
+#import sys
+#sys.path.insert(0, r'c:\Users\colin\OneDrive\Desktop\UBC\Jersey-Number-Recognition\xtcocoapi')
 #sys.path.insert(0, path_to_coco)
 from xtcocotools.coco import COCO
 
