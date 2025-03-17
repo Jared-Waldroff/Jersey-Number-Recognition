@@ -197,19 +197,31 @@ class DataPreProcessing:
                 if result is not None:
                     track_name, features = result
                     processed_data[track_name] = features
+        # else:
+        #     # Multi-process CPU approach
+        #     if not self.suppress_logging:
+        #         logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
+        #     with ProcessPoolExecutor() as executor:
+        #         futures = {
+        #             executor.submit(self.process_single_track, track, input_folder, val_transforms): track
+        #             for track in tracks
+        #         }
+        #         for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets (CPU)"):
+        #             result = future.result()
+        #             if result is not None:
+        #                 track_name, features = result
+        #                 processed_data[track_name] = features
+
+        # return processed_data
+    
         else:
-            # Multi-process CPU approach
+            # Sequential CPU approach (no parallel processing)
             if not self.suppress_logging:
-                logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
-            with ProcessPoolExecutor() as executor:
-                futures = {
-                    executor.submit(self.process_single_track, track, input_folder, val_transforms): track
-                    for track in tracks
-                }
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets (CPU)"):
-                    result = future.result()
-                    if result is not None:
-                        track_name, features = result
-                        processed_data[track_name] = features
+                logging.info("Using sequential CPU mode.")
+            for track in tqdm(tracks, desc="Loading tracklets (CPU)"):
+                result = self.process_single_track(track, input_folder, val_transforms)
+                if result is not None:
+                    track_name, features = result
+                    processed_data[track_name] = features
 
         return processed_data

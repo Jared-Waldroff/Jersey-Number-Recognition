@@ -19,6 +19,7 @@ import logging
 from tqdm import tqdm
 import configuration as config
 import json
+import subprocess
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -47,6 +48,7 @@ class CentralPipeline:
         self.num_image_samples = num_image_samples
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
+        self.with_conda = False
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -179,13 +181,36 @@ class CentralPipeline:
         helpers.generate_json(all_files, output_json)
                 
     def run_pose_estimation(self):
-        pass
-        # self.logger.info("Detecting pose")
-        # command = f"conda run -n {config.pose_env} python pose.py {config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py \
-        #     {config.pose_home}/checkpoints/vitpose-h.pth --img-root / --json-file {input_json} \
-        #     --out-json {output_json}"
-        # success = os.system(command) == 0
-        # self.logger.info("Done detecting pose")
+        input_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
+        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
+
+        self.logger.info("Detecting pose")
+        
+        if self.with_conda:
+            #init_command = ["conda", "run", "-n", config.pose_env, "python"]
+            init_command = ["conda", "run", "-n", "UBC", "python"]
+        else:
+            init_command = ["python"]
+
+        command = init_command + [
+            f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
+            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+            f"{config.pose_home}/checkpoints/vitpose-h.pth",
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json
+        ]
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            self.logger.info(result.stdout)  # Log standard output
+            self.logger.error(result.stderr)  # Log errors (if any)
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error running pose estimation: {e}")
+            self.logger.info(e.stdout)  # Log stdout even in failure
+            self.logger.error(e.stderr)  # Log stderr for debugging
+
+        self.logger.info("Done detecting pose")
     
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0

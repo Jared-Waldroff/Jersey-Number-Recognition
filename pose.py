@@ -9,6 +9,15 @@ sys.path.append(str(ROOT))  # add ROOT to PATH
 
 from argparse import ArgumentParser
 
+from pathlib import Path
+
+root = os.getcwd()
+path_to_coco = os.path.join(root, "xtcocoapi")
+sys.path.append(str(path_to_coco)) # add to PATH
+
+import sys
+sys.path.insert(0, r'c:\Users\colin\OneDrive\Desktop\UBC\Jersey-Number-Recognition\xtcocoapi')
+#sys.path.insert(0, path_to_coco)
 from xtcocotools.coco import COCO
 
 from mmpose.apis import (inference_top_down_pose_model, init_pose_model,
@@ -82,6 +91,9 @@ def main():
         dataset_info = DatasetInfo(dataset_info)
 
     img_keys = list(coco.imgs.keys())
+    
+    print(img_keys)
+    return
 
     # optional
     return_heatmap = False
