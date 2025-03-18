@@ -82,6 +82,9 @@ class CentralPipeline:
         
         self.DISP_IMAGE_CAP = 1
         
+        self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
+        self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
+        
     def init_gaussian_outliers_data_files(self):
         # Initialize Gaussian Outliers   
         # If the n number of main results jsons have not been created yet, initialize results to be for all global data.
@@ -180,7 +183,7 @@ class CentralPipeline:
 
         helpers.generate_json(all_files, output_json)
                 
-    def run_pose_estimation(self):
+    def run_pose_estimation_model(self):
         input_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
 
@@ -205,7 +208,7 @@ class CentralPipeline:
 
         self.logger.info("Done detecting pose")
         
-    def run_crops(self):
+    def run_crops_model(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
         
         self.logger.info("Generate crops")
@@ -215,19 +218,16 @@ class CentralPipeline:
         helpers.generate_crops(output_json, crops_destination_dir, self.loaded_legible_results)
         self.logger.info("Done generating crops")
         
-    def run_str(self):
-        image_dir = os.path.join(config.dataset['SoccerNet']['working_dir'], config.dataset['SoccerNet'][args.part]['crops_folder'])
-        str_result_file = os.path.join(config.dataset['SoccerNet']['working_dir'], "str_results.json")
-
+    def run_str_model(self):
         self.logger.info("Predicting numbers")
 
         command = [
             "conda", "run", "-n", config.str_env, "python", "str.py",
             config.dataset['SoccerNet']['str_model'],
-            f"--data_root={image_dir}",
+            f"--data_root={self.image_dir}",
             "--batch_size=1",
             "--inference",
-            "--result_file", str_result_file
+            "--result_file", self.str_result_file
         ]
 
         try:
@@ -316,6 +316,22 @@ class CentralPipeline:
         self.logger.info(f"Precision={Pr}, Recall={Recall}")
         self.logger.info(f"F1={2 * Pr * Recall / (Pr + Recall)}")
         
+    def combine_results(self):
+        #8. combine tracklet results
+        analysis_results = None
+        #read predicted results, stack unique predictions, sum confidence scores for each, choose argmax
+        results_dict, analysis_results = helpers.process_jersey_id_predictions(self.str_result_file, useBias=True)
+        #results_dict, analysis_results = helpers.process_jersey_id_predictions_raw(self.str_result_file, useTS=True)
+        #results_dict, analysis_results = helpers.process_jersey_id_predictions_bayesian(self.str_result_file, useTS=True, useBias=True, useTh=True)
+
+        # add illegible tracklet predictions
+        consolidated_dict = consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=soccer_ball_list)
+
+        #save results as json
+        final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
+        with open(final_results_path, 'w') as f:
+            json.dump(consolidated_dict, f)
+        
     def run_soccernet(self,
                         num_tracklets=None,
                         num_images_per_tracklet=None,
@@ -363,6 +379,8 @@ class CentralPipeline:
                 self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
 
             # Process the entire batch of images for the whole tracklet
+            # NOTE: We cannot do tracklet-level parallelization because we hit race conditions with caching files.
+            # Solution: do image-level parallelization; i.e. inside ImageBatchPipeline
             pipeline = ImageBatchPipeline(raw_tracklet_images_tensor=images,
                                             current_tracklet_number=tracklet,
                                             output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
@@ -391,10 +409,13 @@ class CentralPipeline:
             self.evaluate_legibility_results()
             
         if run_pose:
-            self.run_pose_estimation()
+            self.run_pose_estimation_model()
             
         if run_crops:
-            self.run_crops()
+            self.run_crops_model()
             
-        if run_srt:
-            self.run_str()
+        if run_str:
+            self.run_str_model()
+        
+        if run_combine:
+            self.combine_results()
