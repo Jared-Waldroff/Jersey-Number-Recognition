@@ -198,7 +198,7 @@ class CentralPipeline:
         self.logger.info("Detecting pose")
         command = [
             "conda", "run", "-n", config.pose_env, "python",
-            f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
+            f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
             f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
             f"{config.pose_home}/checkpoints/vitpose-h.pth",
             "--img-root", "/",
