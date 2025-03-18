@@ -93,10 +93,8 @@ def main():
     else:
         dataset_info = DatasetInfo(dataset_info)
 
+    # This script is loading some files from prior processes to know which tracklets/images to pull, so handled already
     img_keys = list(coco.imgs.keys())
-    
-    print(img_keys)
-    return
 
     # optional
     return_heatmap = False
