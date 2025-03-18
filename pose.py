@@ -3,20 +3,11 @@ import os
 import warnings
 import json
 import sys
-from pathlib import Path
 
 ROOT = './pose/ViTPose/'
 sys.path.append(str(ROOT))  # add ROOT to PATH
 
-#sys.path.append(str(Path.cwd().parent.parent))
-#print(str(Path.cwd().parent.parent))
-# cd to Path.cwd().parent.parent
-os.chdir(str(Path.cwd().parent.parent))
-print("Current working directory: ", os.getcwd())
-
 from argparse import ArgumentParser
-
-from pathlib import Path
 
 from xtcocotools.coco import COCO
 
@@ -71,15 +62,12 @@ def main():
         help='Link thickness for visualization')
 
     args = parser.parse_args()
-    
 
     print(args.show, args.out_img_root)
     # assert args.show or (args.out_img_root != '')
 
     coco = COCO(args.json_file)
     # build the pose model from a config file and a checkpoint file
-    print(args.pose_config)
-    print(args.pose_checkpoint)
     pose_model = init_pose_model(
         args.pose_config, args.pose_checkpoint, device=args.device.lower())
 
@@ -93,7 +81,6 @@ def main():
     else:
         dataset_info = DatasetInfo(dataset_info)
 
-    # This script is loading some files from prior processes to know which tracklets/images to pull, so handled already
     img_keys = list(coco.imgs.keys())
 
     # optional

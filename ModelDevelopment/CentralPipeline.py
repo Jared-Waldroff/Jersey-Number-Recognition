@@ -161,17 +161,23 @@ class CentralPipeline:
     def init_json_for_pose_estimator(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
         
-        if self.use_cache and os.path.exists(output_json):
-            self.logger.info("Pose input json already exists. Skipping generation.")
-            return
+        # IMPORTANT: Always generate the pose input json
+        # REASON: If we have a cache from running on 50 tracklets and we want to do the remainder, we should use that!
+        # input json needs to be populated with again so we know what to run pose on
         
         self.logger.info("Generating json for pose")
         self.set_legible_results_data()
         self.logger.info("Done generating json for pose")
         
+        #print(f"DEBUG: self.loaded_legible_results: {self.loaded_legible_results}")
+        #print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
+        
         all_files = []
+        #print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
         if not self.loaded_legible_results is None:
+            #print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
             for key in self.loaded_legible_results.keys():
+                #print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
                 for entry in self.loaded_legible_results[key]:
                     all_files.append(os.path.join(os.getcwd(), entry))
         else:
@@ -181,6 +187,8 @@ class CentralPipeline:
                 for img in imgs:
                     all_files.append(os.path.join(track_dir, img))
 
+        #print(f"DEBUG: all_files: {all_files}")
+        #print(f"DEBUG: output_json: {output_json}")
         helpers.generate_json(all_files, output_json)
                 
     def run_pose_estimation_model(self):
@@ -189,13 +197,17 @@ class CentralPipeline:
 
         self.logger.info("Detecting pose")
         command = [
-            "conda", "run", "-n", config.pose_env, "python", f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
-            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py", # pose config
-            f"{config.pose_home}/checkpoints/vitpose-h.pth", # pose checkpoint
+            "conda", "run", "-n", config.pose_env, "python",
+            f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
+            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+            f"{config.pose_home}/checkpoints/vitpose-h.pth",
             "--img-root", "/",
             "--json-file", input_json,
             "--out-json", output_json
         ]
+
+        if self.use_cache:
+            command.append("--use_cache")
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -222,13 +234,17 @@ class CentralPipeline:
         self.logger.info("Predicting numbers")
 
         command = [
-            "conda", "run", "-n", config.str_env, "python", "str.py",
-            config.dataset['SoccerNet']['str_model'],
-            f"--data_root={self.image_dir}",
-            "--batch_size=1",
-            "--inference",
-            "--result_file", self.str_result_file
+            "conda", "run", "-n", config.pose_env, "python",
+            f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
+            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+            f"{config.pose_home}/checkpoints/vitpose-h.pth",
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json
         ]
+
+        if self.use_cache:
+            command.append("--use_cache")
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -360,7 +376,6 @@ class CentralPipeline:
         self.init_soccer_ball_filter_data_file() # Even if the filter is not used, algo will just ignore the empty file.
         self.init_gaussian_outliers_data_files()
         self.init_legibility_classifier_data_file()
-        self.init_json_for_pose_estimator()
         
         num_images = 0
         for tracklet in tqdm(self.tracklets_to_process, desc="Phase 1: Data Pre-Processing Pipeline Progress"):
@@ -409,6 +424,8 @@ class CentralPipeline:
             self.evaluate_legibility_results()
             
         if run_pose:
+            # CRITICAL: We can only run the init for pose AFTER the legibility results have been computed!
+            self.init_json_for_pose_estimator()
             self.run_pose_estimation_model()
             
         if run_crops:
