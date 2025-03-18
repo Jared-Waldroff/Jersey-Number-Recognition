@@ -33,6 +33,7 @@ class ImageFeatureTransformPipeline:
         self.run_soccer_ball_filter = run_soccer_ball_filter
         self.generate_features = generate_features
         self.run_filter = run_filter
+        self.parallelize = True
         
         self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
         self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir

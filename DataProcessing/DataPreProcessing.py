@@ -188,7 +188,7 @@ class DataPreProcessing:
 
         processed_data = {}
 
-        if self.use_cuda:
+        if self.use_cuda: # TODO: Can combine to use double parallelization.
             # Single-process approach on GPU
             if not self.suppress_logging:
                 logging.info("Using single-process GPU mode to generate features.")
@@ -211,5 +211,15 @@ class DataPreProcessing:
                     if result is not None:
                         track_name, features = result
                         processed_data[track_name] = features
+                        
+        # else:
+        #     # Sequential CPU approach (no parallel processing)
+        #     if not self.suppress_logging:
+        #         logging.info("Using sequential CPU mode.")
+        #     for track in tqdm(tracks, desc="Loading tracklets (CPU)"):
+        #         result = self.process_single_track(track, input_folder, val_transforms)
+        #         if result is not None:
+        #             track_name, features = result
+        #             processed_data[track_name] = features
 
         return processed_data
