@@ -194,7 +194,8 @@ class CentralPipeline:
             f"{config.pose_home}/checkpoints/vitpose-h.pth", # pose checkpoint
             "--img-root", "/",
             "--json-file", input_json,
-            "--out-json", output_json
+            "--out-json", output_json,
+            "--use_cache", self.use_cache
         ]
 
         try:
