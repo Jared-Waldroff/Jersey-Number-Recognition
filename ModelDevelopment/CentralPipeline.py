@@ -214,6 +214,32 @@ class CentralPipeline:
         self.set_legible_results_data()
         helpers.generate_crops(output_json, crops_destination_dir, self.loaded_legible_results)
         self.logger.info("Done generating crops")
+        
+    def run_str(self):
+        image_dir = os.path.join(config.dataset['SoccerNet']['working_dir'], config.dataset['SoccerNet'][args.part]['crops_folder'])
+        str_result_file = os.path.join(config.dataset['SoccerNet']['working_dir'], "str_results.json")
+
+        self.logger.info("Predicting numbers")
+
+        command = [
+            "conda", "run", "-n", config.str_env, "python", "str.py",
+            config.dataset['SoccerNet']['str_model'],
+            f"--data_root={image_dir}",
+            "--batch_size=1",
+            "--inference",
+            "--result_file", str_result_file
+        ]
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            self.logger.info(result.stdout)  # Log standard output
+            self.logger.error(result.stderr)  # Log errors (if any)
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error running STR prediction: {e}")
+            self.logger.info(e.stdout)  # Log stdout even in failure
+            self.logger.error(e.stderr)  # Log stderr for debugging
+
+        self.logger.info("Done predicting numbers")
     
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
@@ -369,3 +395,6 @@ class CentralPipeline:
             
         if run_crops:
             self.run_crops()
+            
+        if run_srt:
+            self.run_str()
