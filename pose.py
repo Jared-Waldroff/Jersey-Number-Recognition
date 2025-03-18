@@ -3,21 +3,21 @@ import os
 import warnings
 import json
 import sys
+from pathlib import Path
 
 ROOT = './pose/ViTPose/'
 sys.path.append(str(ROOT))  # add ROOT to PATH
+
+#sys.path.append(str(Path.cwd().parent.parent))
+#print(str(Path.cwd().parent.parent))
+# cd to Path.cwd().parent.parent
+os.chdir(str(Path.cwd().parent.parent))
+print("Current working directory: ", os.getcwd())
 
 from argparse import ArgumentParser
 
 from pathlib import Path
 
-root = os.getcwd()
-path_to_coco = os.path.join(root, "xtcocoapi")
-sys.path.append(str(path_to_coco)) # add to PATH
-
-#import sys
-#sys.path.insert(0, r'c:\Users\colin\OneDrive\Desktop\UBC\Jersey-Number-Recognition\xtcocoapi')
-#sys.path.insert(0, path_to_coco)
 from xtcocotools.coco import COCO
 
 from mmpose.apis import (inference_top_down_pose_model, init_pose_model,
@@ -71,12 +71,15 @@ def main():
         help='Link thickness for visualization')
 
     args = parser.parse_args()
+    
 
     print(args.show, args.out_img_root)
     # assert args.show or (args.out_img_root != '')
 
     coco = COCO(args.json_file)
     # build the pose model from a config file and a checkpoint file
+    print(args.pose_config)
+    print(args.pose_checkpoint)
     pose_model = init_pose_model(
         args.pose_config, args.pose_checkpoint, device=args.device.lower())
 

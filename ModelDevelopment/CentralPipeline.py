@@ -48,7 +48,6 @@ class CentralPipeline:
         self.num_image_samples = num_image_samples
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
-        self.with_conda = False
         self.loaded_legible_results = None
         
         self.data_preprocessor = DataPreProcessing(
@@ -186,17 +185,10 @@ class CentralPipeline:
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
 
         self.logger.info("Detecting pose")
-        
-        if self.with_conda:
-            #init_command = ["conda", "run", "-n", config.pose_env, "python"]
-            init_command = ["conda", "run", "-n", "UBC", "python"]
-        else:
-            init_command = ["python"]
-
-        command = init_command + [
-            f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
-            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-            f"{config.pose_home}/checkpoints/vitpose-h.pth",
+        command = [
+            "conda", "run", "-n", config.pose_env, "python", f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
+            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py", # pose config
+            f"{config.pose_home}/checkpoints/vitpose-h.pth", # pose checkpoint
             "--img-root", "/",
             "--json-file", input_json,
             "--out-json", output_json
