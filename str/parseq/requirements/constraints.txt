@@ -1,4 +1,4 @@
---extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cu121  # For CUDA 12.1
 
 aiohttp==3.8.5
     # via fsspec
@@ -315,7 +315,7 @@ tifffile==2023.8.12
     # via scikit-image
 timm==0.9.5
     # via -r requirements/core.in
-torch==1.13.1+cpu
+torch==2.1.0+cu121  # First version supporting CUDA 12.1
     # via
     #   -r requirements/core.in
     #   botorch
@@ -327,7 +327,7 @@ torch==1.13.1+cpu
     #   torchvision
 torchmetrics==1.0.3
     # via pytorch-lightning
-torchvision==0.14.1+cpu
+torchvision==0.14.1+cu121
     # via
     #   -r requirements/core.in
     #   timm

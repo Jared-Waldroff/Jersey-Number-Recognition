@@ -1,4 +1,4 @@
---extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cu121  # For CUDA 12.1
 
 aiohttp==3.8.5
 aiosignal==1.3.1
@@ -25,9 +25,9 @@ regex==2023.8.8
 requests==2.31.0
 safetensors==0.3.2
 timm==0.9.5
-torch==1.13.1+cpu
+torch==2.1.0+cu121  # First version supporting CUDA 12.1
 torchmetrics==1.0.3
-torchvision==0.14.1+cpu
+torchvision==0.14.1+cu121
 tqdm==4.66.1
 typing-extensions==4.7.1
 urllib3==2.0.4
