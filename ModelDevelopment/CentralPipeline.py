@@ -237,7 +237,7 @@ class CentralPipeline:
         command = [
             "conda", "run", "-n", config.str_env, "python",
             os.path.join("StreamlinedPipelineScripts", "str.py"),
-            config.dataset['SoccerNet']['str_model'],
+            DataPaths.STR_MODEL.value,
             f"--data_root={self.image_dir}",
             "--batch_size=1",
             "--inference",
