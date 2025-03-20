@@ -232,28 +232,31 @@ class CentralPipeline:
         
     def run_str_model(self):
         self.logger.info("Predicting numbers")
-
+        os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
+        print("Current working directory: ", os.getcwd())
         command = [
-            "conda", "run", "-n", config.pose_env, "python",
-            f"{os.path.join(Path.cwd().parent.parent, 'pose.py')}",
-            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-            f"{config.pose_home}/checkpoints/vitpose-h.pth",
-            "--img-root", "/",
-            "--json-file", input_json,
-            "--out-json", output_json
+            "conda", "run", "-n", config.str_env, "python",
+            os.path.join("StreamlinedPipelineScripts", "str.py"),
+            DataPaths.STR_MODEL.value,
+            f"--data_root={self.image_dir}",
+            "--batch_size=1",
+            "--inference",
+            "--result_file", self.str_result_file
         ]
-
-        if self.use_cache:
-            command.append("--use_cache")
+        
+        # Cache flag:
+        # if self.use_cache:
+        #     command.append("--use_cache")
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            self.logger.info(result.stdout)  # Log standard output
-            self.logger.error(result.stderr)  # Log errors (if any)
+            # Log standard output and errors
+            self.logger.info(result.stdout)
+            self.logger.error(result.stderr)
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running STR prediction: {e}")
-            self.logger.info(e.stdout)  # Log stdout even in failure
-            self.logger.error(e.stderr)  # Log stderr for debugging
+            self.logger.error(f"Error running STR model: {e}")
+            self.logger.info(e.stdout)    # Log stdout even in failure
+            self.logger.error(e.stderr)   # Log stderr for debugging
 
         self.logger.info("Done predicting numbers")
     
@@ -331,6 +334,29 @@ class CentralPipeline:
         Recall = TP / (TP + FN)
         self.logger.info(f"Precision={Pr}, Recall={Recall}")
         self.logger.info(f"F1={2 * Pr * Recall / (Pr + Recall)}")
+        
+    def consolidated_results(image_dir, dict, illegible_path, soccer_ball_list=None):
+        if not soccer_ball_list is None:
+            with open(soccer_ball_list, 'r') as sf:
+                balls_json = json.load(sf)
+            balls_list = balls_json['ball_tracks']
+            for entry in balls_list:
+                dict[str(entry)] = 1
+
+        with open(illegible_path, 'r') as f:
+            illegile_dict = json.load(f)
+        all_illegible = illegile_dict['illegible']
+        for entry in all_illegible:
+            if not str(entry) in dict.keys():
+                dict[str(entry)] = -1
+
+        all_tracks = os.listdir(image_dir)
+        for t in all_tracks:
+            if not t in dict.keys():
+                dict[t] = -1
+            else:
+                dict[t] = int(dict[t])
+        return dict
         
     def combine_results(self):
         #8. combine tracklet results

@@ -38,6 +38,8 @@ class DataPaths(Enum):
     CHALLENGE_DATA_DIR = str(Path(ROOT_DATA_DIR) / 'challenge' / 'images')
     PRE_TRAINED_MODELS_DIR = str(Path.cwd().parent.parent / 'data' / 'pre_trained_models')
     REID_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'reid')
+    STR_PRE_TRAINED = str(Path(PRE_TRAINED_MODELS_DIR) / 'str')
+    STR_MODEL = str(Path(STR_PRE_TRAINED) / 'parseq_epoch=24-step=2575-val_accuracy=95.6044-val_NED=96.3255.ckpt')
     REID_MODEL_1 = str(Path(REID_PRE_TRAINED) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
     REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
     REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
