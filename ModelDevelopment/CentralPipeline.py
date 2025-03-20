@@ -244,8 +244,6 @@ class CentralPipeline:
             "--result_file", self.str_result_file
         ]
         
-        
-
         # Cache flag:
         # if self.use_cache:
         #     command.append("--use_cache")
@@ -336,6 +334,29 @@ class CentralPipeline:
         Recall = TP / (TP + FN)
         self.logger.info(f"Precision={Pr}, Recall={Recall}")
         self.logger.info(f"F1={2 * Pr * Recall / (Pr + Recall)}")
+        
+    def consolidated_results(image_dir, dict, illegible_path, soccer_ball_list=None):
+        if not soccer_ball_list is None:
+            with open(soccer_ball_list, 'r') as sf:
+                balls_json = json.load(sf)
+            balls_list = balls_json['ball_tracks']
+            for entry in balls_list:
+                dict[str(entry)] = 1
+
+        with open(illegible_path, 'r') as f:
+            illegile_dict = json.load(f)
+        all_illegible = illegile_dict['illegible']
+        for entry in all_illegible:
+            if not str(entry) in dict.keys():
+                dict[str(entry)] = -1
+
+        all_tracks = os.listdir(image_dir)
+        for t in all_tracks:
+            if not t in dict.keys():
+                dict[t] = -1
+            else:
+                dict[t] = int(dict[t])
+        return dict
         
     def combine_results(self):
         #8. combine tracklet results
