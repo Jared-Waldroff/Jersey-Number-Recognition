@@ -388,7 +388,7 @@ if __name__ == '__main__':
                        "legible_eval": False,
                        "pose": False,
                        "crops": False,
-                       "str": False,
+                       "str": True,
                        "combine": True,
                        "eval": True}
             args.pipeline = actions

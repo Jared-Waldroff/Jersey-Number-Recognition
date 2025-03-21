@@ -94,10 +94,10 @@ def setup_pose(root):
 # clone and install str
 # download the model
 def setup_str(root):
-    env_name  = cfg.str_env
-    repo_name = "parseq"
-    src_url   = "https://github.com/baudm/parseq.git"
-    rep_path  = "./str"
+    env_name = cfg.str_env
+    repo_name = "CLIP4STR"  # Changed from parseq
+    src_url = "https://github.com/VamosC/CLIP4STR.git"  # Changed URL
+    rep_path = "./str"
     os.chdir(root)
 
     if not repo_name in os.listdir(rep_path):
@@ -107,10 +107,30 @@ def setup_str(root):
     os.chdir(os.path.join(rep_path, repo_name))
 
     if not env_name in get_conda_envs():
-        make_conda_env(env_name, libs="python=3.9")
-        os.system(f"make torch-cu117")
+        make_conda_env(env_name, libs="python=3.8")  # Changed to Python 3.8
+
+        # Install PyTorch
+        os.system(
+            f"conda run --live-stream -n {env_name} conda install pytorch==1.12.0 torchvision==0.13.0 torchaudio==0.12.0 cudatoolkit=11.3 -c pytorch")
+
+        # Install requirements
         os.system(f"conda run --live-stream -n {env_name} conda install --name {env_name} pip")
-        os.system(f"conda run --live-stream -n {env_name} pip install -r requirements/core.cu117.txt -e .[train,test]")
+        os.system(f"conda run --live-stream -n {env_name} pip install -r requirements.txt")
+
+        # Download the pre-trained model
+        os.system(f"mkdir -p pretrained/clip")
+        model_path = "pretrained/clip/appleDFN5B-CLIP-ViT-H-14.bin"
+        if not os.path.exists(model_path):
+            os.system(f"conda run --live-stream -n {env_name} pip install huggingface_hub")
+            os.system(
+                f"conda run --live-stream -n {env_name} python -c \"from huggingface_hub import hf_hub_download; hf_hub_download('apple/DFN5B-CLIP-ViT-H-14', 'open_clip_pytorch_model.bin', local_dir='pretrained/clip', local_dir_use_symlinks=False)\"")
+            os.system(f"mv pretrained/clip/open_clip_pytorch_model.bin pretrained/clip/appleDFN5B-CLIP-ViT-H-14.bin")
+
+        # Download pre-trained CLIP4STR model
+        clip4str_model = "clip4str_huge_3e942729b1.pt"
+        if not os.path.exists(clip4str_model):
+            os.system(
+                f"conda run --live-stream -n {env_name} python -c \"from huggingface_hub import hf_hub_download; hf_hub_download('mzhaoshuai/CLIP4STR', 'clip4str_huge_3e942729b1.pt', local_dir='.', local_dir_use_symlinks=False)\"")
 
     os.chdir(root)
 
@@ -137,6 +157,12 @@ def download_models(root_dir, dataset):
     if not os.path.isfile(save_path):
         source_url = cfg.dataset[dataset]['legibility_model_url']
         gdown.download(source_url, save_path)
+
+    # Download the CLIP4STR model if not already downloaded
+    save_path = os.path.join(root_dir, "str/CLIP4STR/clip4str_huge_3e942729b1.pt")
+    if not os.path.isfile(save_path):
+        source_url = "https://huggingface.co/mzhaoshuai/CLIP4STR/resolve/main/clip4str_huge_3e942729b1.pt"
+        gdown.download(source_url, save_path, quiet=False)
 
 def setup_sam(root_dir):
     os.chdir(root_dir)
