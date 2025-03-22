@@ -13,7 +13,7 @@ import re
 import cv2
 from PIL import Image
 import math
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
 from tqdm import tqdm
@@ -26,6 +26,71 @@ from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformatio
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
 import helpers
+
+def process_tracklet_worker(args):
+    """
+    Worker function to process a single tracklet.
+    
+    Args:
+        args (tuple): A tuple of parameters:
+            - tracklet (str): Tracklet identifier.
+            - images (list/np.array/tensor): The image batch for the tracklet.
+            - num_images_per_tracklet (int or None): Optional limit to images.
+            - output_processed_data_path (str): Base output path.
+            - use_cache (bool): Flag for cache usage.
+            - input_data_path (str): Input data directory.
+            - tracklets_to_process (list): List of tracklets.
+            - common_processed_data_dir (str): Common directory for processed data.
+            - run_soccer_ball_filter (bool): Whether to run soccer ball filter.
+            - generate_features (bool): Whether to generate features.
+            - run_filter (bool): Whether to run filter.
+            - run_legible (bool): Whether to run legibility stage.
+            - display_transformed_image_sample (bool): Whether to display transformed samples.
+            - suppress_logging (bool): Whether to suppress logging.
+    
+    Returns:
+        str: The tracklet identifier after processing.
+    """
+    (tracklet, images, num_images_per_tracklet, output_processed_data_path, use_cache,
+     input_data_path, tracklets_to_process, common_processed_data_dir,
+     run_soccer_ball_filter, generate_features, run_filter, run_legible,
+     display_transformed_image_sample, suppress_logging) = args
+
+    # Reinitialize a logger inside the worker.
+    logger = CustomLogger().get_logger()
+
+    # Limit images if required.
+    if num_images_per_tracklet is not None:
+        images = images[:num_images_per_tracklet]
+
+    # Remove cache file if caching is disabled.
+    tracklet_data_file_stub = "features.npy"
+    if not use_cache:
+        tracklet_feature_file = os.path.join(output_processed_data_path, tracklet, tracklet_data_file_stub)
+        if os.path.exists(tracklet_feature_file):
+            os.remove(tracklet_feature_file)
+        logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
+
+    # Instantiate and run the image batch pipeline for this tracklet.
+    pipeline = ImageBatchPipeline(
+        raw_tracklet_images_tensor=images,
+        current_tracklet_number=tracklet,
+        output_tracklet_processed_data_path=os.path.join(output_processed_data_path, tracklet),
+        model=ModelUniverse.DUMMY.value,
+        display_transformed_image_sample=display_transformed_image_sample,
+        suppress_logging=suppress_logging,
+        use_cache=use_cache,
+        input_data_path=input_data_path,
+        output_processed_data_path=output_processed_data_path,
+        tracklets_to_process=tracklets_to_process,
+        common_processed_data_dir=common_processed_data_dir,
+        run_soccer_ball_filter=run_soccer_ball_filter,
+        generate_features=generate_features,
+        run_filter=run_filter,
+        run_legible=run_legible
+    )
+    pipeline.run_model_chain()
+    return tracklet
 
 class CentralPipeline:
     def __init__(self,
@@ -348,76 +413,77 @@ class CentralPipeline:
             json.dump(consolidated_dict, f)
         
     def run_soccernet(self,
-                        num_tracklets=None,
-                        num_images_per_tracklet=None,
-                        run_soccer_ball_filter=True,
-                        generate_features=True,
-                        run_filter=True,
-                        run_legible=True,
-                        run_legible_eval=True,
-                        run_pose=True,
-                        run_crops=True,
-                        run_str=True,
-                        run_combine=True,
-                        run_eval=True
-                        ):
+                      num_tracklets=None,
+                      num_images_per_tracklet=None,
+                      run_soccer_ball_filter=True,
+                      generate_features=True,
+                      run_filter=True,
+                      run_legible=True,
+                      run_legible_eval=True,
+                      run_pose=True,
+                      run_crops=True,
+                      run_str=True,
+                      run_combine=True,
+                      run_eval=True):
         self.logger.info("Running the SoccerNet pipeline.")
-        
+
         if num_tracklets is None:
             num_tracklets = self.total_tracklets
+
+        # Phase 0: Generate feature data for all tracklets.
+        data_dict = self.data_preprocessor.generate_features(
+            self.input_data_path,
+            self.output_processed_data_path,
+            num_tracks=num_tracklets,
+            tracks=self.tracklets
+        )
         
-        data_dict = self.data_preprocessor.generate_features(self.input_data_path, self.output_processed_data_path, num_tracks=num_tracklets, tracks=self.tracklets)
-        
-        # This is different than the total possible universe since we impose a cap through the generate_features call
+        # This is our working subset.
         self.tracklets_to_process = list(data_dict.keys())
         
-        # IMPORTANT: These init methods require self.tracklets_to_process to exist, so they are called below.
-        self.init_soccer_ball_filter_data_file() # Even if the filter is not used, algo will just ignore the empty file.
+        # These init methods rely on self.tracklets_to_process.
+        self.init_soccer_ball_filter_data_file()
         self.init_legibility_classifier_data_file()
         
-        num_images = 0
-        for tracklet in tqdm(self.tracklets_to_process, desc="Phase 1: Data Pre-Processing Pipeline Progress"):
+        # Phase 1: Process each tracklet in parallel.
+        tasks = []
+        for tracklet in self.tracklets_to_process:
             images = data_dict[tracklet]
-            if num_images_per_tracklet is not None:
-                images = images[:num_images_per_tracklet]
-                
-            tracklet_data_file_stub = f"features.npy"
-                
-            if not self.use_cache:
-                # User does not want to use any cached tracklet feature data.
-                # Delete the cached data if it exists before proceeding
-                tracklet_feature_file = os.path.join(self.output_processed_data_path, tracklet, tracklet_data_file_stub)
-                if os.path.exists(tracklet_feature_file):
-                    os.remove(tracklet_feature_file)
-                self.logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
+            args = (
+                tracklet,
+                images,
+                num_images_per_tracklet,
+                self.output_processed_data_path,
+                self.use_cache,
+                self.input_data_path,
+                self.tracklets_to_process,
+                self.common_processed_data_dir,
+                run_soccer_ball_filter,
+                generate_features,
+                run_filter,
+                run_legible,
+                self.display_transformed_image_sample,
+                self.suppress_logging
+            )
+            tasks.append(args)
+            
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
+            for future in tqdm(as_completed(futures),
+                               total=len(futures),
+                               desc="Phase 1: Data Pre-Processing Pipeline Progress"):
+                try:
+                    result = future.result()
+                    self.logger.info(f"Processed tracklet: {result}")
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
 
-            # Process the entire batch of images for the whole tracklet
-            # NOTE: We cannot do tracklet-level parallelization because we hit race conditions with caching files.
-            # Solution: do image-level parallelization; i.e. inside ImageBatchPipeline
-            pipeline = ImageBatchPipeline(raw_tracklet_images_tensor=images,
-                                            current_tracklet_number=tracklet,
-                                            output_tracklet_processed_data_path=os.path.join(self.output_processed_data_path, tracklet),
-                                            model=ModelUniverse.DUMMY.value,
-                                            display_transformed_image_sample=self.display_transformed_image_sample,
-                                            suppress_logging=self.suppress_logging,
-                                            use_cache=self.use_cache,
-                                            input_data_path=self.input_data_path,
-                                            output_processed_data_path=self.output_processed_data_path,
-                                            tracklets_to_process=self.tracklets_to_process,
-                                            common_processed_data_dir=self.common_processed_data_dir,
-                                            run_soccer_ball_filter=run_soccer_ball_filter,
-                                            generate_features=generate_features,
-                                            run_filter=run_filter,
-                                            run_legible=run_legible
-                                            )
-            pipeline.run_model_chain()
-        
-        # Phase 2: Running the Models on Pre-Processed + Filtered Data
+        # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially.
         if run_legible_eval:
             self.evaluate_legibility_results()
             
         if run_pose:
-            # CRITICAL: We can only run the init for pose AFTER the legibility results have been computed!
+            # CRITICAL: Pose processing should occur after legibility results are computed.
             self.init_json_for_pose_estimator()
             self.run_pose_estimation_model()
             
