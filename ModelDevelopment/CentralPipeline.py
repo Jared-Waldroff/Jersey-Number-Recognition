@@ -115,8 +115,8 @@ class CentralPipeline:
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
         self.loaded_legible_results = None
-        self.num_tracklets = num_tracklets,
-        self.num_images_per_tracklet = num_images_per_tracklet,
+        self.num_tracklets = num_tracklets
+        self.num_images_per_tracklet = num_images_per_tracklet
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -221,6 +221,7 @@ class CentralPipeline:
                 imgs = os.listdir(track_dir)
                 
                 # Subset the images to only be up to
+                imgs = imgs[:self.num_image_samples]
                 for img in imgs:
                     all_files.append(os.path.join(track_dir, img))
 
