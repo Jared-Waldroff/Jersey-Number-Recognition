@@ -49,6 +49,52 @@ class Result:
     ned: float
     confidence: float
     label_length: float
+    
+def process_image_str(filename, data_root, model, img_size):
+    """
+    Worker function to process a single image.
+    Loads the image, applies the transformation, runs inference,
+    decodes the results, and returns a dictionary keyed by filename.
+    """
+    from PIL import Image
+    import os
+    import torch
+
+    image_path = os.path.join(data_root, 'imgs', filename)
+    try:
+        image = Image.open(image_path).convert('RGB')
+    except Exception as e:
+        print(f"Error opening {image_path}: {e}")
+        return None
+
+    # Obtain the transformation from the SceneTextDataModule (assumed to be defined elsewhere)
+    from strhub.data.module import SceneTextDataModule
+    transform = SceneTextDataModule.get_transform(img_size)
+    image = transform(image)
+    image = image.unsqueeze(0)  # add batch dimension
+
+    # Run inference in no_grad mode for efficiency.
+    with torch.no_grad():
+        logits = model.forward(image.to(model.device))
+        # Process logits as in the original code:
+        # Use only the relevant slice and apply softmax.
+        probs_full = logits[:, :3, :11].softmax(-1)
+        preds, probs = model.tokenizer.decode(probs_full)
+        # Convert outputs to lists (and detach from GPU)
+        logits_np = logits[:, :3, :11].cpu().detach().numpy()[0].tolist()
+        probs_full_np = probs_full.cpu().detach().numpy()[0].tolist()
+        # Extract a confidence value from the decoded output.
+        try:
+            confidence = probs[0].cpu().detach().numpy().squeeze().tolist()
+        except Exception:
+            confidence = None
+
+    return {filename: {
+        'label': preds[0],
+        'confidence': confidence,
+        'raw': probs_full_np,
+        'logits': logits_np
+    }}
 
 
 def print_results_table(results: List[Result], file=None):
@@ -75,26 +121,43 @@ def print_results_table(results: List[Result], file=None):
 
 
 def run_inference(model, data_root, result_file, img_size):
-    # load images one by one, save paths and result
+    """
+    Parallelized inference for STR.
+    
+    Loads all image filenames from the given data root,
+    processes them in parallel using a ThreadPoolExecutor,
+    and writes the aggregated results to result_file.
+    """
+    import os
+    import json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from tqdm import tqdm
+
     file_dir = os.path.join(data_root, 'imgs')
-    filenames = os.listdir(file_dir)
-    filenames.sort()
+    filenames = sorted(os.listdir(file_dir))
     results = {}
-    for filename in tqdm(filenames):
-        image = Image.open(os.path.join(file_dir, filename)).convert('RGB')
-        transform = SceneTextDataModule.get_transform(img_size)
-        image = transform(image)
-        image = image.unsqueeze(0)
-        logits = model.forward(image.to(model.device))
-        #convert to 3 by 10
-        probs_full = logits[:,:3,:11].softmax(-1)
-        preds, probs = model.tokenizer.decode(probs_full)
-        logits = logits[:,:3,:11].cpu().detach().numpy()[0].tolist()
-        # probs = logits.softmax(-1)
-        # preds, probs = model.tokenizer.decode(probs)
-        probs_full = probs_full.cpu().detach().numpy()[0].tolist()
-        confidence = probs[0].cpu().detach().numpy().squeeze().tolist()
-        results[filename] = {'label':preds[0], 'confidence':confidence, 'raw': probs_full, 'logits':logits}
+
+    # Define number of worker threads (tweak as needed)
+    num_workers = 8
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Submit a task for each filename.
+        future_to_filename = {
+            executor.submit(process_image_str, filename, data_root, model, img_size): filename
+            for filename in filenames
+        }
+        for future in tqdm(as_completed(future_to_filename),
+                           total=len(future_to_filename),
+                           desc="STR Inference"):
+            filename = future_to_filename[future]
+            try:
+                res = future.result()
+                if res is not None:
+                    results.update(res)
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+
+    # Write results to JSON file.
     with open(result_file, 'w') as f:
         json.dump(results, f)
 

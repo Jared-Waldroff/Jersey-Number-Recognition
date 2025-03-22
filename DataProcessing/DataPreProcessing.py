@@ -19,7 +19,8 @@ import logging
 from DataProcessing.Logger import CustomLogger
 from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
-#import configuration import as cfg
+import torch.multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 class ModelUniverse(Enum):
   REID_CENTROID = "REID"
@@ -55,6 +56,11 @@ class DataPaths(Enum):
 
 class CommonConstants(Enum):
     FEATURE_DATA_FILE_NAME = "features.npy"
+
+# To avoid issues with serialization
+def _worker_fn(args):
+    instance, track, input_folder, val_transforms = args
+    return instance.process_single_track(track, input_folder, val_transforms)
 
 class DataPreProcessing:
     def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
@@ -150,78 +156,71 @@ class DataPreProcessing:
     def generate_features(self, input_folder, output_folder, num_tracks, tracks: bool=None, classic_transform: bool=False):
         """
         Generate preprocessed tensors (features) for each image in the specified tracklets.
-        
+
         Args:
             input_folder (str): Path to the folder containing tracklet subdirectories.
             output_folder (str): Path to the folder where processed results (if any) are stored.
             num_tracks (int): Maximum number of tracklets to process.
             tracks (list, optional): A list of tracklet names (subfolders) to process.
                                     If None, tracks are obtained via self.get_tracks().
-        
+
         Returns:
             dict: A dictionary mapping tracklet name -> torch.Tensor of shape (N, C, H, W),
                 where N is the number of images in that tracklet.
         
         Notes:
-            - If self.device is 'cuda', this function processes images in a single thread
-            to avoid multiple processes contending for the GPU.
-            - If self.device is 'cpu', it uses ProcessPoolExecutor for CPU parallelism.
+            - Uses multiprocessing to load images in parallel.
+            - Uses CUDA parallelization for batch-wise processing on GPU.
         """
+
+        # Set up the transformation pipeline
         if classic_transform:
-            # Define validation transforms using torchvision
             val_transforms = transforms.Compose([
                 transforms.Resize((256, 256)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225])
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
         else:
             transforms_base = ReidTransforms(cfg)
             val_transforms = transforms_base.build_transforms(is_train=False)
 
-        # If no explicit track list is provided, gather from disk
+        # Get tracklet names if not provided
         if tracks is None:
             if not self.suppress_logging:
-                logging.info("No tracklets provided to generate_features. Getting all tracklets.")
+                logging.info("No tracklets provided. Retrieving from input folder.")
             tracks, max_track = self.get_tracks(input_folder)
 
-        # Limit to num_tracks
-        tracks = tracks[:num_tracks]
-
+        tracks = tracks[:num_tracks]  # Limit to num_tracks
         processed_data = {}
 
-        if self.use_cuda: # TODO: Can combine to use double parallelization.
-            # Single-process approach on GPU
+        if self.use_cuda:
             if not self.suppress_logging:
-                logging.info("Using single-process GPU mode to generate features.")
-            for track in tqdm(tracks, desc="Loading tracklets (GPU)"):
-                result = self.process_single_track(track, input_folder, val_transforms)
+                logging.info("Using double parallelization: multiprocessing + CUDA batch processing.")
+
+            # Set up arguments for each worker as a tuple
+            worker_args = [(self, track, input_folder, val_transforms) for track in tracks]
+
+            # Use multiprocessing for parallel track processing
+            mp.set_start_method('spawn', force=True)  # Ensure safe CUDA multiprocessing
+            with mp.Pool(processes=mp.cpu_count()) as pool:
+                results = list(tqdm(pool.imap(_worker_fn, worker_args), total=len(worker_args), desc="Processing tracklets (CUDA + CPU)"))
+            
+            # Aggregate results
+            for result in results:
                 if result is not None:
                     track_name, features = result
                     processed_data[track_name] = features
+
         else:
-            # Multi-process CPU approach
             if not self.suppress_logging:
                 logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
+
             with ProcessPoolExecutor() as executor:
-                futures = {
-                    executor.submit(self.process_single_track, track, input_folder, val_transforms): track
-                    for track in tracks
-                }
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Loading tracklets (CPU)"):
+                futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms): track for track in tracks}
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Processing tracklets (CPU)"):
                     result = future.result()
                     if result is not None:
                         track_name, features = result
                         processed_data[track_name] = features
-                        
-        # else:
-        #     # Sequential CPU approach (no parallel processing)
-        #     if not self.suppress_logging:
-        #         logging.info("Using sequential CPU mode.")
-        #     for track in tqdm(tracks, desc="Loading tracklets (CPU)"):
-        #         result = self.process_single_track(track, input_folder, val_transforms)
-        #         if result is not None:
-        #             track_name, features = result
-        #             processed_data[track_name] = features
 
         return processed_data
