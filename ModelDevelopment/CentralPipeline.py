@@ -408,12 +408,7 @@ class CentralPipeline:
                                             run_soccer_ball_filter=run_soccer_ball_filter,
                                             generate_features=generate_features,
                                             run_filter=run_filter,
-                                            run_legible=run_legible,
-                                            run_pose=run_pose,
-                                            run_crops=run_crops,
-                                            run_str=run_str,
-                                            run_combine=run_combine,
-                                            run_eval=run_eval
+                                            run_legible=run_legible
                                             )
             pipeline.run_model_chain()
         
