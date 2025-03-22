@@ -200,30 +200,16 @@ class ImageFeatureTransformPipeline:
             if len(ball_list) > 1:
                 self.logger.warning(f"Found more than one soccer ball in tracklet {self.current_tracklet_number}. This should not happen.")
             
-            # Open JSON file in read+write mode
+            # Just write
             try:
-                with open(self.current_tracklet_images_input_dir, 'r+') as fp:
-                    try:
-                        ball_json = json.load(fp)
-                    except json.JSONDecodeError:
-                        self.logger.warning(f"JSON file {self.current_tracklet_images_input_dir} is empty or corrupt. Initializing new JSON structure.")
-                        ball_json = {"ball_tracks": []}
-
-                    if "ball_tracks" not in ball_json:
-                        ball_json["ball_tracks"] = []
-
-                    # Append the tracklet number if it is not already in the list
-                    if self.current_tracklet_number not in ball_json["ball_tracks"]:
-                        ball_json["ball_tracks"].append(self.current_tracklet_number)
-
-                        # Move cursor to the start of the file before writing
-                        fp.seek(0)
-                        json.dump(ball_json, fp, indent=4)
-                        fp.truncate()  # Ensure no leftover content
-
+                ball_file_path = os.path.join(self.current_tracklet_images_input_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+                with open(ball_file_path, 'w') as fp:
+                    # Dump the json data directly
+                    # We will only have the current track in here
+                    json.dump({"ball_tracks": [self.current_tracklet_number]}, fp, indent=4)
             except FileNotFoundError:
-                self.logger.warning(f"Soccer ball list file {self.current_tracklet_images_input_dir} not found. Creating a new one.")
-                with open(self.current_tracklet_images_input_dir, 'w') as fp:
+                self.logger.warning(f"Soccer ball list file {ball_file_path} not found. Creating a new one.")
+                with open(ball_file_path, 'w') as fp:
                     json.dump({"ball_tracks": [self.current_tracklet_number]}, fp, indent=4)
 
             return True

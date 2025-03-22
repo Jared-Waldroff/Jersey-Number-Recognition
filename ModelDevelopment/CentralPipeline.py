@@ -116,9 +116,12 @@ class CentralPipeline:
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
         self.loaded_legible_results = None
+        self.loaded_illegible_results = None
         self.num_tracklets = num_tracklets
         self.num_images_per_tracklet = num_images_per_tracklet
         self.num_workers = num_workers
+        
+        self.loaded_ball_tracks = None
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -192,40 +195,84 @@ class CentralPipeline:
                 with open(soccer_ball_list_path, "w") as outfile:
                     json.dump({'ball_tracks': []}, outfile)
                 
-    def set_legible_results_data(self):
+    def set_legibility_results_data(self):
         global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        
-        # Iterate over every folder inside self.output_processed_data_path, read the legible results and append to a global list
-        # Then, once that list is complete, place the aggregated results in the global_legible_results_path
-        # Why are we doing this? To avoid race conditions with parallelization.
-        
-        if os.path.exists(global_legible_results_path) and self.use_cache:
-            # File already there, so read it from memory
-            self.logger.info("Reading legible results from cache.")
-            with open(global_legible_results_path, 'r') as openfile:
-                self.loaded_legible_results = json.load(openfile)
-        
-        # Otherwise, we need to aggregate the results
-        self.logger.info("Aggregating legible results (use_cache=False)")
+        global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+
+        # 1) If use_cache is True and both global files exist, skip the loop entirely and load from cache.
+        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(global_illegible_results_path):
+            self.logger.info("Reading legible & illegible results from cache (both global files exist).")
+            with open(global_legible_results_path, 'r') as f_leg:
+                self.loaded_legible_results = json.load(f_leg)
+            with open(global_illegible_results_path, 'r') as f_ill:
+                self.loaded_illegible_results = json.load(f_ill)
+            return  # Skip re-aggregation altogether
+
+        # 2) Otherwise, we need to re-aggregate from individual tracklet files.
+        self.logger.info("Aggregating legible & illegible results (cache not used or only one file is missing).")
         for tracklet in self.tracklets_to_process:
             legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
+
+            # Aggregate legible results
             with open(legible_results_path, 'r') as openfile:
                 legible_results = json.load(openfile)
-                
                 if self.loaded_legible_results is None:
                     self.loaded_legible_results = legible_results
                 else:
-                    for key in legible_results.keys():
+                    for key, val in legible_results.items():
                         if key in self.loaded_legible_results:
-                            self.loaded_legible_results[key] += legible_results[key]
+                            self.loaded_legible_results[key].extend(val)
                         else:
-                            self.loaded_legible_results[key] = legible_results[key]
-        
-        # Now save the aggregated results
+                            self.loaded_legible_results[key] = val
+
+            # Aggregate illegible results
+            # The structure is: {'illegible': [list of tracklet numbers]}
+            with open(illegible_results_path, 'r') as openfile:
+                illegible_results = json.load(openfile)
+                if self.loaded_illegible_results is None:
+                    self.loaded_illegible_results = illegible_results
+                else:
+                    self.loaded_illegible_results['illegible'].extend(illegible_results['illegible'])
+
+        # 3) Write aggregated results back to the global files.
         with open(global_legible_results_path, 'w') as outfile:
             json.dump(self.loaded_legible_results, outfile)
 
-        self.logger.info(f"Saved global legible results to cache: {global_legible_results_path}")
+        with open(global_illegible_results_path, 'w') as outfile:
+            json.dump(self.loaded_illegible_results, outfile)
+
+        self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
+        self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
+        
+    def set_ball_tracks(self):
+        global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+
+        # 1) If use_cache is True and the global file exists, load and skip aggregation.
+        if self.use_cache and os.path.exists(global_ball_tracks_path):
+            self.logger.info("Reading ball tracks from cache.")
+            with open(global_ball_tracks_path, 'r') as f:
+                data = json.load(f)  # data is expected to be {"ball_tracks": [...]}
+                self.loaded_ball_tracks = data['ball_tracks']  # Extract the array
+            return  # Skip re-aggregation
+
+        # 2) Otherwise, aggregate ball tracks from individual tracklet files.
+        self.logger.info("Aggregating ball tracks (cache not used or file missing).")
+        aggregated_ball_tracks = []
+        for tracklet in self.tracklets_to_process:
+            local_ball_tracks_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['soccer_ball_list'])
+            with open(local_ball_tracks_path, 'r') as f:
+                data = json.load(f)  # data is expected to be {"ball_tracks": [...]}
+            # If "ball_tracks" is an array, possibly empty or with a single track name
+            aggregated_ball_tracks.extend(data['ball_tracks'])
+
+        self.loaded_ball_tracks = aggregated_ball_tracks
+
+        # 3) Write the aggregated results back to the global file, preserving the same structure.
+        with open(global_ball_tracks_path, 'w') as outfile:
+            json.dump({"ball_tracks": self.loaded_ball_tracks}, outfile)
+
+        self.logger.info(f"Saved global ball tracks to: {global_ball_tracks_path}")
                 
     def init_json_for_pose_estimator(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
@@ -235,7 +282,7 @@ class CentralPipeline:
         # input json needs to be populated with again so we know what to run pose on
         
         self.logger.info("Generating json for pose")
-        self.set_legible_results_data()
+        self.set_legibility_results_data()
         self.logger.info("Done generating json for pose")
         
         #print(f"DEBUG: self.loaded_legible_results: {self.loaded_legible_results}")
@@ -413,7 +460,7 @@ class CentralPipeline:
         crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
-        self.set_legible_results_data()
+        self.set_legibility_results_data()
         self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
@@ -477,6 +524,7 @@ class CentralPipeline:
         # If a soccer ball list is to be used, load it once and pass to workers.
         balls_list = []
         if load_soccer_ball_list:
+            # TODO: Change from load_soccer_ball_list to actual path
             with open(load_soccer_ball_list, 'r') as sf:
                 balls_json = json.load(sf)
             balls_list = balls_json.get('ball_tracks', [])
@@ -549,9 +597,10 @@ class CentralPipeline:
         self.logger.info(f"Precision={precision}, Recall={recall}")
         self.logger.info(f"F1={f1}")
         
-    def consolidated_results(image_dir, dict, illegible_path, soccer_ball_list=None):
-        if not soccer_ball_list is None:
-            with open(soccer_ball_list, 'r') as sf:
+    def consolidated_results(self, image_dir, dict, illegible_path, soccer_ball_list=None):
+        if not soccer_ball_list is None or soccer_ball_list == []:
+            global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+            with open(global_ball_tracks_path, 'r') as sf:
                 balls_json = json.load(sf)
             balls_list = balls_json['ball_tracks']
             for entry in balls_list:
@@ -579,14 +628,19 @@ class CentralPipeline:
         results_dict, analysis_results = helpers.process_jersey_id_predictions(self.str_result_file, useBias=True)
         #results_dict, analysis_results = helpers.process_jersey_id_predictions_raw(self.str_result_file, useTS=True)
         #results_dict, analysis_results = helpers.process_jersey_id_predictions_bayesian(self.str_result_file, useTS=True, useBias=True, useTh=True)
-
+        illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+        
         # add illegible tracklet predictions
-        consolidated_dict = consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=soccer_ball_list)
+        self.set_ball_tracks()
+        consolidated_dict = self.consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
 
         #save results as json
         final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
         with open(final_results_path, 'w') as f:
             json.dump(consolidated_dict, f)
+            
+    def evaluate_end_results(self):
+        pass
         
     def run_soccernet(self,
                       run_soccer_ball_filter=True,
@@ -673,3 +727,6 @@ class CentralPipeline:
         
         if run_combine:
             self.combine_results()
+            
+        if run_eval:
+            self.evaluate_end_results()
