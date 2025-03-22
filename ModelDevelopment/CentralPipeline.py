@@ -122,6 +122,7 @@ class CentralPipeline:
         self.num_workers = num_workers
         
         self.loaded_ball_tracks = None
+        self.analysis_results = None
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -599,6 +600,7 @@ class CentralPipeline:
         
     def consolidated_results(self, image_dir, dict, illegible_path, soccer_ball_list=None):
         if not soccer_ball_list is None or soccer_ball_list == []:
+            self.logger.info("Consolidating results: Using soccer ball list")
             global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
             with open(global_ball_tracks_path, 'r') as sf:
                 balls_json = json.load(sf)
@@ -622,25 +624,86 @@ class CentralPipeline:
         return dict
         
     def combine_results(self):
-        #8. combine tracklet results
-        analysis_results = None
-        #read predicted results, stack unique predictions, sum confidence scores for each, choose argmax
-        results_dict, analysis_results = helpers.process_jersey_id_predictions(self.str_result_file, useBias=True)
-        #results_dict, analysis_results = helpers.process_jersey_id_predictions_raw(self.str_result_file, useTS=True)
-        #results_dict, analysis_results = helpers.process_jersey_id_predictions_bayesian(self.str_result_file, useTS=True, useBias=True, useTh=True)
+        # 8. combine tracklet results
+        # Read predicted results, stack unique predictions, sum confidence scores for each, choose argmax
+        results_dict, self.analysis_results = helpers.process_jersey_id_predictions(self.str_result_file, useBias=True)
+        # You may also consider your alternative processing methods below.
         illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
         
-        # add illegible tracklet predictions
+        # add illegible tracklet predictions (if any)
         self.set_ball_tracks()
-        consolidated_dict = self.consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
+        self.consolidated_dict = self.consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
 
-        #save results as json
+        # Save results as JSON.
         final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
         with open(final_results_path, 'w') as f:
-            json.dump(consolidated_dict, f)
+            json.dump(self.consolidated_dict, f)
             
     def evaluate_end_results(self):
-        pass
+        # 9. evaluate accuracy
+        final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
+        if self.consolidated_dict is None:
+            with open(final_results_path, 'r') as f:
+                self.consolidated_dict = json.load(f)
+        with open(self.gt_data_path, 'r') as gf:
+            gt_dict = json.load(gf)
+        
+        # Instead of evaluating against all keys in gt_dict, evaluate only over the common keys.
+        common_keys = set(self.consolidated_dict.keys()).intersection(set(gt_dict.keys()))
+        print(f"Evaluating on {len(common_keys)} tracklets (out of {len(gt_dict)} in GT).")
+        
+        self.evaluate_results(self.consolidated_dict, gt_dict, full_results=self.analysis_results, keys=common_keys)
+        
+    def evaluate_results(self, consolidated_dict, gt_dict, full_results=None, keys=None):
+        """
+        Evaluates the consolidated results against the ground truth.
+        Only keys in the provided 'keys' set (or the intersection of consolidated_dict and gt_dict, if not provided)
+        are evaluated.
+        """
+        SKIP_ILLEGIBLE = False
+        if keys is None:
+            keys = set(consolidated_dict.keys()).intersection(set(gt_dict.keys()))
+            
+        correct = 0
+        total = 0
+        mistakes = []
+        count_of_correct_in_full_results = 0
+        
+        for tid in keys:
+            predicted = consolidated_dict[tid]
+            # If a key is missing in gt_dict, skip (or assume a default value of -1)
+            true_value = gt_dict.get(tid, -1)
+            
+            if SKIP_ILLEGIBLE and (str(true_value) == "-1" or str(predicted) == "-1"):
+                continue
+            if str(true_value) == str(predicted):
+                correct += 1
+            else:
+                mistakes.append(tid)
+            total += 1
+            
+        if total > 0:
+            accuracy = 100.0 * correct / total
+        else:
+            accuracy = 0.0
+            
+        print(f"Total evaluated tracklets: {total}, correct: {correct}, accuracy: {accuracy}%")
+        
+        # Additional evaluation details.
+        illegible_mistake_count = 0
+        illegible_gt_count = 0
+        for tid in mistakes:
+            if str(consolidated_dict[tid]) == "-1":
+                illegible_mistake_count += 1
+            elif str(gt_dict[tid]) == "-1":
+                illegible_gt_count += 1
+            elif full_results is not None and tid in full_results:
+                if gt_dict[tid] in full_results[tid]['unique']:
+                    count_of_correct_in_full_results += 1
+                    
+        print(f"Mistakes (illegible predicted): {illegible_mistake_count}")
+        print(f"Mistakes (legible but GT illegible): {illegible_gt_count}")
+        print(f"Correct in full results but not picked: {count_of_correct_in_full_results}")
         
     def run_soccernet(self,
                       run_soccer_ball_filter=True,
