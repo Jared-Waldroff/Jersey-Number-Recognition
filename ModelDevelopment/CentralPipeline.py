@@ -35,7 +35,6 @@ def process_tracklet_worker(args):
         args (tuple): A tuple of parameters:
             - tracklet (str): Tracklet identifier.
             - images (list/np.array/tensor): The image batch for the tracklet.
-            - num_images_per_tracklet (int or None): Optional limit to images.
             - output_processed_data_path (str): Base output path.
             - use_cache (bool): Flag for cache usage.
             - input_data_path (str): Input data directory.
@@ -51,7 +50,7 @@ def process_tracklet_worker(args):
     Returns:
         str: The tracklet identifier after processing.
     """
-    (tracklet, images, num_images_per_tracklet, output_processed_data_path, use_cache,
+    (tracklet, images, output_processed_data_path, use_cache,
      input_data_path, tracklets_to_process, common_processed_data_dir,
      run_soccer_ball_filter, generate_features, run_filter, run_legible,
      display_transformed_image_sample, suppress_logging) = args
@@ -60,8 +59,8 @@ def process_tracklet_worker(args):
     logger = CustomLogger().get_logger()
 
     # Limit images if required.
-    if num_images_per_tracklet is not None:
-        images = images[:num_images_per_tracklet]
+    if self.num_images_per_tracklet is not None:
+        images = images[:self.num_images_per_tracklet]
 
     # Remove cache file if caching is disabled.
     tracklet_data_file_stub = "features.npy"
@@ -102,7 +101,9 @@ class CentralPipeline:
                 display_transformed_image_sample: bool=False,
                 num_image_samples: int=1,
                 use_cache: bool=True,
-                suppress_logging: bool=False
+                suppress_logging: bool=False,
+                num_tracklets: int=None,
+                num_images_per_tracklet: int=None
                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
@@ -114,6 +115,8 @@ class CentralPipeline:
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
         self.loaded_legible_results = None
+        self.num_tracklets = num_tracklets,
+        self.num_images_per_tracklet = num_images_per_tracklet,
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -205,17 +208,19 @@ class CentralPipeline:
         #print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
         
         all_files = []
-        #print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
+        print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
         if not self.loaded_legible_results is None:
-            #print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
+            print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
             for key in self.loaded_legible_results.keys():
-                #print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
+                print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
                 for entry in self.loaded_legible_results[key]:
                     all_files.append(os.path.join(os.getcwd(), entry))
         else:
-            for tr in self.tracks_to_process: # Only run this for the subset of the tracklet universe
+            for tr in self.tracklets_to_process: # Only run this for the subset of the tracklet universe
                 track_dir = os.path.join(self.input_data_path, tr)
                 imgs = os.listdir(track_dir)
+                
+                # Subset the images to only be up to
                 for img in imgs:
                     all_files.append(os.path.join(track_dir, img))
 
@@ -433,8 +438,6 @@ class CentralPipeline:
             json.dump(consolidated_dict, f)
         
     def run_soccernet(self,
-                      num_tracklets=None,
-                      num_images_per_tracklet=None,
                       run_soccer_ball_filter=True,
                       generate_features=True,
                       run_filter=True,
@@ -447,16 +450,20 @@ class CentralPipeline:
                       run_eval=True):
         self.logger.info("Running the SoccerNet pipeline.")
 
-        if num_tracklets is None:
-            num_tracklets = self.total_tracklets
+        if self.num_tracklets is None:
+            self.num_tracklets = self.total_tracklets
 
         # Phase 0: Generate feature data for all tracklets.
         data_dict = self.data_preprocessor.generate_features(
             self.input_data_path,
             self.output_processed_data_path,
-            num_tracks=num_tracklets,
+            num_tracks=self.num_tracklets,
             tracks=self.tracklets
         )
+        
+        # Get length of data dict
+        num_images_per_tracklet_local = len(data_dict[list(data_dict.keys())[0]])
+        self.logger.info(f"DEBUG Number of images per tracklet (should be < max (1400+)): {num_images_per_tracklet_local}")
         
         # This is our working subset.
         self.tracklets_to_process = list(data_dict.keys())
@@ -472,7 +479,6 @@ class CentralPipeline:
             args = (
                 tracklet,
                 images,
-                num_images_per_tracklet,
                 self.output_processed_data_path,
                 self.use_cache,
                 self.input_data_path,
@@ -505,7 +511,7 @@ class CentralPipeline:
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed.
             self.init_json_for_pose_estimator()
-            self.run_pose_estimation_model()
+            #self.run_pose_estimation_model()
             
         if run_crops:
             self.run_crops_model()
