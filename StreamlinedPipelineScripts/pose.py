@@ -151,7 +151,7 @@ def main():
     # Step 2: Process remaining images in parallel
     # -------------------------
     new_results = []
-    num_workers = 4  # Set number of workers as appropriate (or dynamically, e.g. os.cpu_count())
+    num_workers = 2  # Set number of workers as appropriate (or dynamically, e.g. os.cpu_count())
     with ProcessPoolExecutor(max_workers=num_workers, initializer=worker_init, initargs=(args,)) as executor:
         futures = {executor.submit(process_image, image_id): image_id for image_id in remaining_img_keys}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Processing pose estimation"):
