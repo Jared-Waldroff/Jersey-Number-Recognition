@@ -53,14 +53,14 @@ def process_tracklet_worker(args):
     (tracklet, images, output_processed_data_path, use_cache,
      input_data_path, tracklets_to_process, common_processed_data_dir,
      run_soccer_ball_filter, generate_features, run_filter, run_legible,
-     display_transformed_image_sample, suppress_logging) = args
+     display_transformed_image_sample, suppress_logging, num_images_per_tracklet) = args
 
     # Reinitialize a logger inside the worker.
     logger = CustomLogger().get_logger()
 
     # Limit images if required.
-    if self.num_images_per_tracklet is not None:
-        images = images[:self.num_images_per_tracklet]
+    if num_images_per_tracklet is not None:
+        images = images[:num_images_per_tracklet]
 
     # Remove cache file if caching is disabled.
     tracklet_data_file_stub = "features.npy"
@@ -159,15 +159,16 @@ class CentralPipeline:
         for tracklet in self.tracklets_to_process:
             # Allow overwrite if user does not want to use cache
             legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
+            
             if not os.path.exists(legible_results_path) or self.use_cache is False:
                 with open(legible_results_path, "w") as outfile:
                     json.dump({tracklet: []}, outfile)
             
-        # Illegible data pattern: {'illegible': [list of tracklet numbers]}
-        if not os.path.exists(legible_results_path) or self.use_cache is False:
-            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
-            with open(illegible_results_path, "w") as outfile:
-                json.dump({'illegible': []}, outfile)
+            # Illegible data pattern: {'illegible': [list of tracklet numbers]}
+            if not os.path.exists(illegible_results_path) or self.use_cache is False:
+                with open(illegible_results_path, "w") as outfile:
+                    json.dump({'illegible': []}, outfile)
     
     def init_soccer_ball_filter_data_file(self):
         self.logger.info("Creating placeholder data files for Soccer Ball Filter.")
@@ -208,11 +209,11 @@ class CentralPipeline:
         #print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
         
         all_files = []
-        print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
+        #print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
         if not self.loaded_legible_results is None:
-            print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
+            #print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
             for key in self.loaded_legible_results.keys():
-                print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
+                #print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
                 for entry in self.loaded_legible_results[key]:
                     all_files.append(os.path.join(os.getcwd(), entry))
         else:
@@ -490,7 +491,8 @@ class CentralPipeline:
                 run_filter,
                 run_legible,
                 self.display_transformed_image_sample,
-                self.suppress_logging
+                self.suppress_logging,
+                self.num_images_per_tracklet  # <-- Add this
             )
             tasks.append(args)
             
@@ -512,7 +514,7 @@ class CentralPipeline:
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed.
             self.init_json_for_pose_estimator()
-            #self.run_pose_estimation_model()
+            self.run_pose_estimation_model()
             
         if run_crops:
             self.run_crops_model()
