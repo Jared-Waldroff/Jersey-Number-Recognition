@@ -139,17 +139,20 @@ class CentralPipeline:
     
     def init_soccer_ball_filter_data_file(self):
         self.logger.info("Creating placeholder data files for Soccer Ball Filter.")
-        soccer_ball_list_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
-        
-        # See if the user specified use_cache=False
-        if self.use_cache is False and os.path.exists(soccer_ball_list_path):
-            os.remove(soccer_ball_list_path)
-        
-        # Create only a single file to contain all tracklets
-        # Check if the file  exists first
-        if not os.path.exists(soccer_ball_list_path):
-            with open(soccer_ball_list_path, "w") as outfile:
-                json.dump({'ball_tracks': []}, outfile)
+        for tracklet in self.tracklets_to_process:
+            # Create one inside each tracklet folder
+            soccer_ball_list_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['soccer_ball_list'])
+            
+            # See if the user specified use_cache=False
+            if self.use_cache is False and os.path.exists(soccer_ball_list_path):
+                os.remove(soccer_ball_list_path)
+            
+            # Create only a single file to contain all tracklets
+            # Check if the file  exists first
+            if not os.path.exists(soccer_ball_list_path):
+                # Create the file
+                with open(soccer_ball_list_path, "w") as outfile:
+                    json.dump({'ball_tracks': []}, outfile)
                 
     def set_legible_results_data(self):
         legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
