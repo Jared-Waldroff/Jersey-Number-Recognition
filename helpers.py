@@ -65,7 +65,7 @@ def generate_json(file_names, json_file_path):
         json.dump(json_dict, fp)
 
 # get confidence-filtered points from pose results
-def get_points(pose):
+def get_points(self, pose):
     points = pose["keypoints"]
     if len(points) < 12:
         #print("not enough points")

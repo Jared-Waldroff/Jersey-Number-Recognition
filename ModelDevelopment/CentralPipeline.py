@@ -138,7 +138,6 @@ class CentralPipeline:
         if not os.path.exists(self.output_processed_data_path):
             os.makedirs(self.output_processed_data_path)
         
-        self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
         self.logger = CustomLogger().get_logger()
         
         # Determine if the user has pytorch cuda
@@ -150,10 +149,14 @@ class CentralPipeline:
         self.tracklets = self.track_result[0]
         self.total_tracklets = self.track_result[1]
         
-        self.DISP_IMAGE_CAP = 1
-        
         self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
         self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
+        
+        # Constants
+        self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
+        self.DISP_IMAGE_CAP = 1
+        self.PADDING = 5
+        self.CONFIDENCE_THRESHOLD = 0.4
         
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
@@ -190,11 +193,39 @@ class CentralPipeline:
                     json.dump({'ball_tracks': []}, outfile)
                 
     def set_legible_results_data(self):
-        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+        global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
         
-        if os.path.exists(legible_results_path):
-            with open(legible_results_path, 'r') as openfile:
+        # Iterate over every folder inside self.output_processed_data_path, read the legible results and append to a global list
+        # Then, once that list is complete, place the aggregated results in the global_legible_results_path
+        # Why are we doing this? To avoid race conditions with parallelization.
+        
+        if os.path.exists(global_legible_results_path) and self.use_cache:
+            # File already there, so read it from memory
+            self.logger.info("Reading legible results from cache.")
+            with open(global_legible_results_path, 'r') as openfile:
                 self.loaded_legible_results = json.load(openfile)
+        
+        # Otherwise, we need to aggregate the results
+        self.logger.info("Aggregating legible results (use_cache=False)")
+        for tracklet in self.tracklets_to_process:
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
+            with open(legible_results_path, 'r') as openfile:
+                legible_results = json.load(openfile)
+                
+                if self.loaded_legible_results is None:
+                    self.loaded_legible_results = legible_results
+                else:
+                    for key in legible_results.keys():
+                        if key in self.loaded_legible_results:
+                            self.loaded_legible_results[key] += legible_results[key]
+                        else:
+                            self.loaded_legible_results[key] = legible_results[key]
+        
+        # Now save the aggregated results
+        with open(global_legible_results_path, 'w') as outfile:
+            json.dump(self.loaded_legible_results, outfile)
+
+        self.logger.info(f"Saved global legible results to cache: {global_legible_results_path}")
                 
     def init_json_for_pose_estimator(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
@@ -261,14 +292,130 @@ class CentralPipeline:
 
         self.logger.info("Done detecting pose")
         
+    # get confidence-filtered points from pose results
+    def get_points(self, pose):
+        points = pose["keypoints"]
+        if len(points) < 12:
+            #print("not enough points")
+            return []
+        relevant = [points[6], points[5], points[11], points[12]]
+        result = []
+        for r in relevant:
+            if r[2] < self.CONFIDENCE_THRESHOLD:
+                #print(f"confidence {r[2]}")
+                return []
+            result.append(r[:2])
+        return result
+        
+    def process_crop(self, entry, all_legible, crops_destination_dir):
+        """
+        Process a single pose result entry: if the image is in the keep list (all_legible),
+        compute a crop based on the pose keypoints and save the cropped image.
+        
+        Returns a dictionary with keys:
+        - "skipped": a dict (possibly empty) with counts per track (derived from image name)
+        - "saved": a list of image names that were successfully cropped and saved
+        - "miss": count (0 or 1) for this entry if it was skipped due to unreliable points or wrong shape.
+        """
+        filtered_points = self.get_points(entry)
+        img_name = entry["img_name"]
+        base_name = os.path.basename(img_name)
+
+        # Skip this entry if the image isn’t in the legible list.
+        if base_name not in all_legible:
+            return None
+
+        # If no valid keypoints, count as a miss.
+        if len(filtered_points) == 0:
+            print(f"skipping {img_name}, unreliable points")
+            tr = base_name.split('_')[0]
+            return {"skipped": {tr: 1}, "saved": [], "miss": 1}
+
+        img = cv2.imread(img_name)
+        if img is None:
+            print(f"can't find {img_name}")
+            return None
+
+        height, width, _ = img.shape
+        x_min = min(p[0] for p in filtered_points) - self.PADDING
+        x_max = max(p[0] for p in filtered_points) + self.PADDING
+        y_min = min(p[1] for p in filtered_points) - self.PADDING
+        y_max = max(p[1] for p in filtered_points)
+        x1 = int(0 if x_min < 0 else x_min)
+        y1 = int(0 if y_min < 0 else y_min)
+        x2 = int(width - 1 if x_max > width else x_max)
+        y2 = int(height - 1 if y_max > height else y_max)
+
+        crop = img[y1:y2, x1:x2, :]
+        h, w, _ = crop.shape
+        if h == 0 or w == 0:
+            print(f"skipping {img_name}, shape is wrong")
+            tr = base_name.split('_')[0]
+            return {"skipped": {tr: 1}, "saved": [], "miss": 1}
+
+        out_path = os.path.join(crops_destination_dir, base_name)
+        cv2.imwrite(out_path, crop)
+        return {"skipped": {}, "saved": [img_name], "miss": 0}
+
+    def generate_crops(self, json_file, crops_destination_dir, all_legible=None):
+        """
+        Parallelized cropping function.
+        
+        Arguments:
+        - json_file: Path to the JSON file containing pose results.
+        - crops_destination_dir: Directory where cropped images will be saved.
+        - all_legible: Optionally, a precomputed list of image basenames that are legible.
+        
+        Returns:
+        - skipped: Aggregated dictionary of skipped counts per track.
+        - saved: Aggregated list of image names that were successfully processed.
+        """
+        # Compute all_legible if not provided.
+        if all_legible is None:
+            all_legible = []
+            for key in self.loaded_legible_results.keys():
+                for entry in self.loaded_legible_results[key]:
+                    all_legible.append(os.path.basename(entry))
+
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+            all_poses = data["pose_results"]
+
+        # Prepare containers for aggregated results.
+        aggregated_skipped = {}
+        aggregated_saved = []
+        total_misses = 0
+
+        # Use ThreadPoolExecutor for parallel processing.
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            futures = [
+                executor.submit(self.process_crop, entry, all_legible, crops_destination_dir)
+                for entry in all_poses
+            ]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating crops"):
+                result = future.result()
+                if result is None:
+                    continue
+                # Aggregate skipped counts.
+                for tr, count in result["skipped"].items():
+                    aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
+                # Aggregate saved images.
+                aggregated_saved.extend(result["saved"])
+                total_misses += result["miss"]
+
+        print(f"skipped {total_misses} out of {len(all_poses)}")
+        return aggregated_skipped, aggregated_saved
+        
     def run_crops_model(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
         
         self.logger.info("Generate crops")
         crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
+        self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
         self.set_legible_results_data()
-        helpers.generate_crops(output_json, crops_destination_dir, self.loaded_legible_results)
+        self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
+        self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
         
     def run_str_model(self):
