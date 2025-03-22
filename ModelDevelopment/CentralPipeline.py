@@ -306,72 +306,92 @@ class CentralPipeline:
     def evaluate_legibility_results(self, load_soccer_ball_list=False):
         self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
 
-        correct = 0
-        total = 0
-        TP = 0
-        FP = 0
-        FN = 0
-        TN = 0
-        num_per_tracklet_FP = []
-        num_per_tracklet_TP = []
-        
-        # Open the ground truth file since we have one for all tracklets
+        # Initialize accumulators
+        total_correct = 0
+        total_tracks = 0
+        total_TP = 0
+        total_FP = 0
+        total_FN = 0
+        total_TN = 0
+
+        # Read the ground truth file once (shared across workers)
         with open(self.gt_data_path, 'r') as gf:
             gt_dict = json.load(gf)
-        
-        # Key adjustment: Run the classification only on the tracklet subset we care about
-        for track in self.tracklets_to_process:
-            # Loop over every processed data dir and access the legible results for that tracklet
-            # Then open that file in read mode (since we only want to read the results)
+
+        # If a soccer ball list is to be used, load it once and pass to workers.
+        balls_list = []
+        if load_soccer_ball_list:
+            with open(load_soccer_ball_list, 'r') as sf:
+                balls_json = json.load(sf)
+            balls_list = balls_json.get('ball_tracks', [])
+
+        # Define a worker that processes a single tracklet.
+        def worker(track):
             tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, track)
             illegible_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['illegible_result'])
             legible_tracklets_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['legible_result'])
-            
-            with open(legible_tracklets_path, 'r') as legible_tracklets_path:
-                legible_tracklets = json.load(legible_tracklets_path)
-            
-            with open(illegible_path, 'r') as gf:
-                illegible_list = json.load(gf)
-                illegible_list = illegible_list['illegible']
 
-            balls_list = []
-            if load_soccer_ball_list is True:
-                with open(load_soccer_ball_list, 'r') as sf:
-                    balls_json = json.load(sf)
-                balls_list = balls_json['ball_tracks']
-            
-            # don't consider soccer balls
+            # Read legibility results for this tracklet.
+            with open(legible_tracklets_path, 'r') as f:
+                legible_tracklets = json.load(f)
+            with open(illegible_path, 'r') as f:
+                illegible_list = json.load(f).get('illegible', [])
+
+            # Skip processing if this tracklet is in the soccer ball list.
             if track in balls_list:
-                continue
+                return {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0}
 
+            # Get the ground truth value and determine predicted legibility.
             true_value = str(gt_dict[track])
             predicted_legible = self.is_track_legible(track, illegible_list, legible_tracklets)
-            if true_value == '-1' and not predicted_legible:
-                #self.logger.info(f"1){track}")
-                correct += 1
-                TN += 1
-            elif true_value != '-1' and predicted_legible:
-                #self.logger.info(f"2){track}")
-                correct += 1
-                TP += 1
-                # if legible_tracklets is not None:
-                #     num_per_tracklet_TP.append(len(legible_tracklets[track]))
-            elif true_value == '-1' and predicted_legible:
-                FP += 1
-                self.logger.info(f"FP:{track}")
-                # if legible_tracklets is not None:
-                #     num_per_tracklet_FP.append(len(legible_tracklets[track]))
-            elif true_value != '-1' and not predicted_legible:
-                FN += 1
-                self.logger.info(f"FN:{track}")
-            total += 1
 
-        self.logger.info(f'Correct {correct} out of {total}. Accuracy {100*correct/total}%.')
-        self.logger.info(f'TP={TP}, TN={TN}, FP={FP}, FN={FN}')
-        Pr = TP / (TP + FP)
-        Recall = TP / (TP + FN)
-        self.logger.info(f"Precision={Pr}, Recall={Recall}")
-        self.logger.info(f"F1={2 * Pr * Recall / (Pr + Recall)}")
+            # Initialize per-track statistics.
+            stats = {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 1}
+
+            if true_value == '-1' and not predicted_legible:
+                stats["correct"] = 1
+                stats["TN"] = 1
+            elif true_value != '-1' and predicted_legible:
+                stats["correct"] = 1
+                stats["TP"] = 1
+            elif true_value == '-1' and predicted_legible:
+                stats["FP"] = 1
+                self.logger.info(f"FP: {track}")
+            elif true_value != '-1' and not predicted_legible:
+                stats["FN"] = 1
+                self.logger.info(f"FN: {track}")
+
+            return stats
+
+        # Use ThreadPoolExecutor to run the worker for each track in parallel.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        futures = []
+        with ThreadPoolExecutor() as executor:
+            for track in self.tracklets_to_process:
+                futures.append(executor.submit(worker, track))
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Evaluating legibility"):
+                try:
+                    result = future.result()
+                    total_correct += result["correct"]
+                    total_TP += result["TP"]
+                    total_TN += result["TN"]
+                    total_FP += result["FP"]
+                    total_FN += result["FN"]
+                    total_tracks += result["total"]
+                except Exception as e:
+                    self.logger.error(f"Error processing a tracklet: {e}")
+
+        # Compute metrics. Avoid division by zero.
+        accuracy = (100 * total_correct / total_tracks) if total_tracks > 0 else 0
+        precision = (total_TP / (total_TP + total_FP)) if (total_TP + total_FP) > 0 else 0
+        recall = (total_TP / (total_TP + total_FN)) if (total_TP + total_FN) > 0 else 0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0
+
+        self.logger.info(f'Correct {total_correct} out of {total_tracks}. Accuracy {accuracy}%.')
+        self.logger.info(f'TP={total_TP}, TN={total_TN}, FP={total_FP}, FN={total_FN}')
+        self.logger.info(f"Precision={precision}, Recall={recall}")
+        self.logger.info(f"F1={f1}")
         
     def consolidated_results(image_dir, dict, illegible_path, soccer_ball_list=None):
         if not soccer_ball_list is None:
