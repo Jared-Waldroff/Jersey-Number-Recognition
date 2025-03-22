@@ -194,8 +194,8 @@ class ImageBatchPipeline:
             self.legible_tracklets[self.current_tracklet_number] = legible_images
                 
         # Create dir under output_processed_data_path
-        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+        legible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['legible_result'])
+        illegible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
         
         # NOTE: When saving results, save them to the lookup table at the appropriate key (this tracklet)
         self.save_json_results(legible_results_path, self.legible_tracklets, "legible_tracklets")

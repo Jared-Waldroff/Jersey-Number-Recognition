@@ -87,18 +87,17 @@ class CentralPipeline:
         
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
-        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
-        
         # Legible data pattern: {tracklet_number: [list of image numbers]}
         for tracklet in self.tracklets_to_process:
             # Allow overwrite if user does not want to use cache
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
             if not os.path.exists(legible_results_path) or self.use_cache is False:
                 with open(legible_results_path, "w") as outfile:
                     json.dump({tracklet: []}, outfile)
             
         # Illegible data pattern: {'illegible': [list of tracklet numbers]}
         if not os.path.exists(legible_results_path) or self.use_cache is False:
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
             with open(illegible_results_path, "w") as outfile:
                 json.dump({'illegible': []}, outfile)
     
