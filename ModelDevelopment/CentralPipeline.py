@@ -240,23 +240,6 @@ class CentralPipeline:
     
     def evaluate_legibility_results(self, load_soccer_ball_list=False):
         self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
-        illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
-        legible_tracklets_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        
-        with open(legible_tracklets_path, 'r') as legible_tracklets_path:
-            legible_tracklets = json.load(legible_tracklets_path)
-        
-        with open(self.gt_data_path, 'r') as gf:
-            gt_dict = json.load(gf)
-        with open(illegible_path, 'r') as gf:
-            illegible_list = json.load(gf)
-            illegible_list = illegible_list['illegible']
-
-        balls_list = []
-        if load_soccer_ball_list is True:
-            with open(load_soccer_ball_list, 'r') as sf:
-                balls_json = json.load(sf)
-            balls_list = balls_json['ball_tracks']
 
         correct = 0
         total = 0
@@ -267,8 +250,31 @@ class CentralPipeline:
         num_per_tracklet_FP = []
         num_per_tracklet_TP = []
         
+        # Open the ground truth file since we have one for all tracklets
+        with open(self.gt_data_path, 'r') as gf:
+            gt_dict = json.load(gf)
+        
         # Key adjustment: Run the classification only on the tracklet subset we care about
         for track in self.tracklets_to_process:
+            # Loop over every processed data dir and access the legible results for that tracklet
+            # Then open that file in read mode (since we only want to read the results)
+            tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, track)
+            illegible_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['illegible_result'])
+            legible_tracklets_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['legible_result'])
+            
+            with open(legible_tracklets_path, 'r') as legible_tracklets_path:
+                legible_tracklets = json.load(legible_tracklets_path)
+            
+            with open(illegible_path, 'r') as gf:
+                illegible_list = json.load(gf)
+                illegible_list = illegible_list['illegible']
+
+            balls_list = []
+            if load_soccer_ball_list is True:
+                with open(load_soccer_ball_list, 'r') as sf:
+                    balls_json = json.load(sf)
+                balls_list = balls_json['ball_tracks']
+            
             # don't consider soccer balls
             if track in balls_list:
                 continue
