@@ -8,9 +8,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
 # Append ROOT to PATH and change working directory.
-ROOT = './pose/ViTPose/'
-sys.path.append(str(ROOT))
-# os.chdir(str(Path.cwd().parent.parent))
+# ROOT = './pose/ViTPose/'
+# sys.path.append(str(ROOT))
+
+os.chdir(str(Path.cwd().parent))
 print("Current working directory: ", os.getcwd())
 
 from xtcocotools.coco import COCO

@@ -97,6 +97,7 @@ class CentralPipeline:
                 gt_data_path: DataPaths,
                 output_processed_data_path: DataPaths,
                 common_processed_data_dir: DataPaths,
+                num_workers: int=8,
                 single_image_pipeline: bool=True,
                 display_transformed_image_sample: bool=False,
                 num_image_samples: int=1,
@@ -117,6 +118,7 @@ class CentralPipeline:
         self.loaded_legible_results = None
         self.num_tracklets = num_tracklets
         self.num_images_per_tracklet = num_images_per_tracklet
+        self.num_workers = num_workers
         
         self.data_preprocessor = DataPreProcessing(
         display_transformed_image_sample=self.display_transformed_image_sample,
@@ -373,7 +375,7 @@ class CentralPipeline:
         # Use ThreadPoolExecutor to run the worker for each track in parallel.
         from concurrent.futures import ThreadPoolExecutor, as_completed
         futures = []
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             for track in self.tracklets_to_process:
                 futures.append(executor.submit(worker, track))
 
@@ -496,7 +498,7 @@ class CentralPipeline:
             )
             tasks.append(args)
             
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
             for future in tqdm(as_completed(futures),
                                total=len(futures),
