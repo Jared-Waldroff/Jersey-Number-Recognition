@@ -111,30 +111,24 @@ def filter_outliers(
 
     # For every round, open the appropriate file, access the tracklet, append the keep list, and close the file.
     # Before appending, check if it is empty. If not and user has supplied use_cache=False, overwrite it. Otherwise, skip.
+    
+    # For the current tracklet, place the destination file in /current_tracklet_processed_data_dir
     for r in range(rounds):
         result_file_name = f"main_subject_gauss_th={threshold}_r={r + 1}.json"
-        result_file_path = os.path.join(common_processed_data_dir, result_file_name)
-        
-        # Check if the file exists. If not, raise an error because it should have been created in CentralPipeline
-        if not os.path.exists(result_file_path):
-            raise FileNotFoundError(f"File not found: {result_file_path}. This should have been created in CentralPipeline.")
+        result_file_path = os.path.join(current_tracklet_processed_data_dir, result_file_name)
         
         #logger.info(f"Inside guassian_outliers.py: {result_file_path}")
         #logger.info(f"Results: {results[r]}")
         
-        # Open in read+write mode
-        with open(result_file_path, 'r+') as f:
-            data = json.load(f)
-            data_for_this_tracklet = data.get(current_tracklet, [])
-            
-            # If using cache and there's already data, skip updating
-            if use_cache and len(data_for_this_tracklet) > 0:
-                continue
-            else:
-                data[current_tracklet] = results[r]
-                f.seek(0)
-                json.dump(data, f, indent=4)
-                f.truncate()
+        # Open in write mode as we are guaranteed to only write once
+        # If use_cache is true and the file already exists, do not write it
+        if os.path.exists(result_file_path) and use_cache:
+            self.logger.info(f"File {result_file_path} already exists. Skipping writing to it.")
+            continue
+        
+        # Write the file (it will not already exist)
+        with open(result_file_path, 'w') as f:
+            json.dump({current_tracklet: results[r]}, f, indent=4)
                 
     return results
 

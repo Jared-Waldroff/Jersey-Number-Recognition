@@ -36,11 +36,6 @@ class ImageBatchPipeline:
                 generate_features: bool,
                 run_filter: bool,
                 run_legible: bool,
-                run_pose: bool,
-                run_crops: bool,
-                run_str: bool,
-                run_combine: bool,
-                run_eval: bool,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
                 use_cache: bool=True):
@@ -58,11 +53,6 @@ class ImageBatchPipeline:
         self.generate_features=generate_features
         self.run_filter=run_filter,
         self.run_legible=run_legible,
-        self.run_pose=run_pose,
-        self.run_crops=run_crops,
-        self.run_str=run_str,
-        self.run_combine=run_combine,
-        self.run_eval=run_eval
         self.image_feature_transform = ImageFeatureTransformPipeline(
           run_soccer_ball_filter=run_soccer_ball_filter,
           generate_features=generate_features,
@@ -143,7 +133,7 @@ class ImageBatchPipeline:
         
         if use_filtered:
             if filter == 'sim': # Do not use
-                path_to_filter_results = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['sim_filtered'])
+                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['sim_filtered'])
             else:
                 # Access the params from the config and determine which data file to pull from
                 gauss_config = config.dataset['SoccerNet']['gauss_filtered']
@@ -152,7 +142,7 @@ class ImageBatchPipeline:
                 rounds = gauss_config['r']
                 gaussian_filter_lookup_table = f"{filename}_th={threshold}_r={rounds}.json"
             
-                path_to_filter_results = os.path.join(self.common_processed_data_dir, gaussian_filter_lookup_table)
+                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, gaussian_filter_lookup_table)
             
             with open(path_to_filter_results, 'r') as f:
                 filtered = json.load(f)
@@ -194,8 +184,8 @@ class ImageBatchPipeline:
             self.legible_tracklets[self.current_tracklet_number] = legible_images
                 
         # Create dir under output_processed_data_path
-        legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+        legible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['legible_result'])
+        illegible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
         
         # NOTE: When saving results, save them to the lookup table at the appropriate key (this tracklet)
         self.save_json_results(legible_results_path, self.legible_tracklets, "legible_tracklets")
