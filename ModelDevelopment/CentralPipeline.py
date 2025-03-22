@@ -630,9 +630,9 @@ class CentralPipeline:
         # You may also consider your alternative processing methods below.
         illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
         
-        self.logger.info(f"DEBUG STR Results: {self.analysis_results}")
-        self.logger.info(f"DEBUG Results Dict: {results_dict}")
-        self.logger.info(f"DEBUG Illegible Path: {illegible_path}")
+        #self.logger.info(f"DEBUG STR Results: {self.analysis_results}")
+        #self.logger.info(f"DEBUG Results Dict: {results_dict}")
+        #self.logger.info(f"DEBUG Illegible Path: {illegible_path}")
         #self.logger.info("DEBUG Soccer Ball List: ", self.loaded_ball_tracks)
         
         # add illegible tracklet predictions (if any)
