@@ -114,6 +114,7 @@ class CentralPipeline:
                 num_images_per_tracklet: int=None,
                 tracklet_batch_size = 32,
                 image_batch_size: int=200,
+                num_threads_multiplier: int=3
                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
@@ -131,6 +132,7 @@ class CentralPipeline:
         self.num_workers = num_workers
         self.tracklet_batch_size = tracklet_batch_size
         self.image_batch_size = image_batch_size
+        self.num_threads_multiplier = num_threads_multiplier
         
         self.loaded_ball_tracks = None
         self.analysis_results = None
@@ -774,6 +776,8 @@ class CentralPipeline:
         
         self.logger.info(f"Tracklet batch size: {self.tracklet_batch_size}")
         self.logger.info(f"Image batch size: {self.image_batch_size}")
+        self.logger.info(f"Number of workers: {self.num_workers}")
+        self.logger.info(f"Number of threads created: {self.num_workers * self.num_threads_multiplier}")
         for batch_start in pbar:
             batch_end = min(batch_start + self.tracklet_batch_size, len(tracks))
             batch_tracklets = tracks[batch_start:batch_end]
@@ -848,7 +852,7 @@ class CentralPipeline:
             # RECOMMENDED MULTIPLIER: 3-5x number of workers.
             # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
             # you would do 6*3 or 6*5 as input to this ThreadPool
-            with ThreadPoolExecutor(max_workers=self.num_workers * 3) as executor:
+            with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
                 futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
                 pbar = tqdm(total=len(futures), 

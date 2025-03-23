@@ -214,12 +214,16 @@ class ImageFeatureTransformPipeline:
         imgs = np.random.choice(image_names, size=sample, replace=False)
         width_list = []
         height_list = []
-        for img_name in imgs:
-            img_path = os.path.join(self.current_tracklet_images_input_dir, img_name)
-            img = cv2.imread(img_path)
-            h, w = img.shape[:2]
-            width_list.append(w)
-            height_list.append(h)
+        try:
+            for img_name in imgs:
+                img_path = os.path.join(self.current_tracklet_images_input_dir, img_name)
+                img = cv2.imread(img_path)
+                h, w = img.shape[:2]
+                width_list.append(w)
+                height_list.append(h)
+        except:
+            self.logger.error(f"Error reading image {img_path}")
+            return
         mean_w, mean_h = np.mean(width_list), np.mean(height_list)
         if mean_h <= HEIGHT_MIN and mean_w <= WIDTH_MIN:
             # this must be a soccer ball
