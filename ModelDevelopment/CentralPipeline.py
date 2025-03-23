@@ -114,7 +114,8 @@ class CentralPipeline:
                 num_images_per_tracklet: int=None,
                 tracklet_batch_size = 32,
                 image_batch_size: int=200,
-                num_threads_multiplier: int=3
+                num_threads_multiplier: int=3,
+                tracklets_to_process_override: list=None,
                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
@@ -133,6 +134,7 @@ class CentralPipeline:
         self.tracklet_batch_size = tracklet_batch_size
         self.image_batch_size = image_batch_size
         self.num_threads_multiplier = num_threads_multiplier
+        self.tracklets_to_process_override = tracklets_to_process_override
         
         self.loaded_ball_tracks = None
         self.analysis_results = None
@@ -161,10 +163,6 @@ class CentralPipeline:
         self.use_cuda = True if torch.cuda.is_available() else False
         self.device = torch.device('cuda' if self.use_cuda else 'cpu')
         self.logger.info(f"Using device: {self.device}")
-        
-        self.track_result = self.data_preprocessor.get_tracks(self.input_data_path)
-        self.tracklets = self.track_result[0]
-        self.total_tracklets = self.track_result[1]
         
         self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
         self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
@@ -738,6 +736,7 @@ class CentralPipeline:
             # If any one of them is missing, return False (i.e., do NOT skip)
             for file in files_to_check:
                 if not os.path.exists(os.path.join(current_tracklet_dir, file)):
+                    self.logger.info("Cache file missing. Preprocessing cannot be skipped")
                     return False
 
             self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
@@ -758,17 +757,15 @@ class CentralPipeline:
                     run_eval=True):
         self.logger.info("Running the SoccerNet pipeline.")
 
-        if self.num_tracklets is None:
-            self.num_tracklets = self.total_tracklets
-
         # Determine which tracklets to process
-        if self.tracklets is None:
+        if self.tracklets_to_process_override is None:
             self.logger.info("No tracklets provided. Retrieving from input folder.")
             tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+            tracks = tracks[:self.num_tracklets]
         else:
-            tracks = self.tracklets
+            self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
+            tracks = self.tracklets_to_process_override
 
-        tracks = tracks[:self.num_tracklets]
         final_processed_data = {}
 
         # Loop over batches of tracklets
@@ -819,7 +816,7 @@ class CentralPipeline:
 
             # Initialize files that rely on self.tracklets_to_process
             self.init_soccer_ball_filter_data_file()
-            self.init_legibility_classifier_data_file()
+            #self.init_legibility_classifier_data_file()
 
             # Phase 1: Process each tracklet in parallel for this batch
             tasks = []

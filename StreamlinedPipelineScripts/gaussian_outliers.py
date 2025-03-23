@@ -64,6 +64,16 @@ def filter_outliers(
     
     logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
     
+    # logger.info("Parameters passed: ")
+    # logger.info(f"DEBUG: current_tracklet={current_tracklet}")
+    # logger.info(f"DEBUG: current_tracklet_images_input_dir={current_tracklet_images_input_dir}")
+    # logger.info(f"DEBUG: current_tracklet_processed_data_dir={current_tracklet_processed_data_dir}")
+    # logger.info(f"DEBUG: common_processed_data_dir={common_processed_data_dir}")
+    # logger.info(f"DEBUG: threshold={threshold}")
+    # logger.info(f"DEBUG: rounds={rounds}")
+    # logger.info(f"DEBUG: suppress_logging={suppress_logging}")
+    # logger.info(f"DEBUG: use_cache={use_cache}")
+    
     results = {}
     
     for r in range(rounds):
@@ -77,54 +87,55 @@ def filter_outliers(
     
     # Get the features path for the current tracklet
     feature_file_path = os.path.join(current_tracklet_processed_data_dir, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+    
+    #logger.info(f"DEBUG: feature_file_path={feature_file_path}")
 
     with open(feature_file_path, 'rb') as f:
         features = np.load(f)
+    
+    #logger.info(f"DEBUG: len(images) <= 2: {len(images) <= 2}")
     if len(images) <= 2:
         # Too few images to do pruning on. Just include all of them.
         # This means indexing into every r of the results object and including all images of the current tracklet across all rounds/
         for r in range(rounds):
             results[r] = images
-            
-        # And do not run the pruning algo. Just return here, because the outer loop controls the next tracklet.
-        return results
+        # We do not return here, but rather skip the rounds phase below
+    else:
+        # If we reached this point, we have enough data to run pruning on.
+        cleaned_data = features
+        for r in range(rounds):
+            # Fit a Gaussian distribution to the data
+            mu = np.mean(cleaned_data, axis=0)
 
-    # If we reached this point, we have enough data to run pruning on.
-    cleaned_data = features
-    for r in range(rounds):
-        # Fit a Gaussian distribution to the data
-        mu = np.mean(cleaned_data, axis=0)
+            euclidean_distance = np.linalg.norm(features - mu, axis = 1)
 
-        euclidean_distance = np.linalg.norm(features - mu, axis = 1)
+            mean_euclidean_distance = np.mean(euclidean_distance)
+            std = np.std(euclidean_distance)
+            th = threshold * std
 
-        mean_euclidean_distance = np.mean(euclidean_distance)
-        std = np.std(euclidean_distance)
-        th = threshold * std
+            # Remove outliers from the data
+            cleaned_data = features[(euclidean_distance - mean_euclidean_distance) <= threshold]
+            cleaned_data_indexes = np.where((euclidean_distance - mean_euclidean_distance)<= threshold)[0]
 
-        # Remove outliers from the data
-        cleaned_data = features[(euclidean_distance - mean_euclidean_distance) <= threshold]
-        cleaned_data_indexes = np.where((euclidean_distance - mean_euclidean_distance)<= threshold)[0]
-
-        for i in cleaned_data_indexes:
-            # Access the value array for this round (implicitly for this tracklet as this file is for this tracklet and only this tracklet)
-            results[r].append(images[i])
+            for i in cleaned_data_indexes:
+                # Access the value array for this round (implicitly for this tracklet as this file is for this tracklet and only this tracklet)
+                results[r].append(images[i])
 
     # For every round, open the appropriate file, access the tracklet, append the keep list, and close the file.
     # Before appending, check if it is empty. If not and user has supplied use_cache=False, overwrite it. Otherwise, skip.
-    
     # For the current tracklet, place the destination file in /current_tracklet_processed_data_dir
     for r in range(rounds):
         result_file_name = f"main_subject_gauss_th={threshold}_r={r + 1}.json"
         result_file_path = os.path.join(current_tracklet_processed_data_dir, result_file_name)
         
-        #logger.info(f"Inside guassian_outliers.py: {result_file_path}")
+        #logger.info(f"Inside guassian_outliers.py, result_file_path: {result_file_path}")
         #logger.info(f"Results: {results[r]}")
         
         # Open in write mode as we are guaranteed to only write once
         # If use_cache is true and the file already exists, do not write it
-        if os.path.exists(result_file_path) and use_cache:
-            logger.info(f"File {result_file_path} already exists. Skipping writing to it.")
-            continue
+        # if os.path.exists(result_file_path) and use_cache:
+        #     logger.info(f"File {result_file_path} already exists. Skipping writing to it.")
+        #     continue
         
         # Write the file (it will not already exist)
         with open(result_file_path, 'w') as f:

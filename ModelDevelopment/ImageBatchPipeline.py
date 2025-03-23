@@ -124,15 +124,16 @@ class ImageBatchPipeline:
     def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
-        # if self.use_cache, check if we have a cache
-        if self.use_cache:
-            #legible_results_path, self.legible_tracklets,
-            # if legible_results_path has illegible_results.json and legible_results.json, skip
-            legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-            illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
-            if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
-                self.logger.info("Using existing cache for legibility classifier. Skipping.")
-                return
+        # DO NOT USE: Caching is now controlled in CentralPipeline
+        # # if self.use_cache, check if we have a cache
+        # if self.use_cache:
+        #     #legible_results_path, self.legible_tracklets,
+        #     # if legible_results_path has illegible_results.json and legible_results.json, skip
+        #     legible_results_path = os.path.join(self.output_processed_data_path, config.dataset['SoccerNet']['legible_result'])
+        #     illegible_results_path = os.path.join(self.output_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
+        #     if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
+        #         self.logger.info("Using existing cache for legibility classifier. Skipping.")
+        #         return
         
         if use_filtered:
             if filter == 'sim': # Do not use
@@ -152,7 +153,7 @@ class ImageBatchPipeline:
 
         if exclude_balls:
             updated_tracklets = []
-            soccer_ball_list = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+            soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
             
             # Check if the soccer_ball_list even exists first, and if not, skip
             if not os.path.exists(soccer_ball_list):
@@ -166,6 +167,8 @@ class ImageBatchPipeline:
                     if not track in ball_list:
                         updated_tracklets.append(track)
                 self.tracklets_to_process = self.tracklets_to_process
+                
+                self.logger.info("This tracklet is a soccer ball track. Marking it as not legibile.")
 
         if use_filtered:
             images = filtered[self.current_tracklet_number]

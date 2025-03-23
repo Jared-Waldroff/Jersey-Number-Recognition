@@ -71,7 +71,7 @@ class ImageFeatureTransformPipeline:
         return conf, weights
         
     def pass_through_gaussian_outliers_filter(self):
-        self.logger.info("Identifying and removing outliers by calling gaussian_outliers_streamlined.py on feature file")
+        self.logger.info("Identifying and removing outliers by calling gaussian_outliers.py on feature file")
         
         # DO NOT USE: Cache management now controlled in CentralPipeline.
         # if self.use_cache and os.path.exists(self.current_tracklet_processed_data_dir):
@@ -96,7 +96,7 @@ class ImageFeatureTransformPipeline:
             self.logger.info(result.stdout)  # Log standard output
             self.logger.error(result.stderr)  # Capture and log standard error
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running gaussian_outliers_streamlined.py: {e}")
+            self.logger.error(f"Error running gaussian.py: {e}")
             self.logger.error(f"STDOUT:\n{e.stdout}")  # Print captured standard output
             self.logger.error(f"STDERR:\n{e.stderr}")  # Print captured standard error
         
@@ -240,7 +240,7 @@ class ImageFeatureTransformPipeline:
             
             # Just write
             try:
-                ball_file_path = os.path.join(self.current_tracklet_images_input_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+                ball_file_path = os.path.join(self.current_tracklet_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
                 with open(ball_file_path, 'w') as fp:
                     # Dump the json data directly
                     # We will only have the current track in here
