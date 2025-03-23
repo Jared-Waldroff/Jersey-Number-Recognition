@@ -7,7 +7,7 @@ import torch.optim as optim
 import torchvision as tv
 import torchvision.transforms as transforms
 import numpy as np
-from tqdm.auto import tqdm
+from tqdm.notebook import tqdm
 import os
 import re
 import cv2
@@ -16,7 +16,6 @@ import math
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import logging
-from tqdm import tqdm
 import configuration as config
 import json
 import subprocess
@@ -818,19 +817,20 @@ class CentralPipeline:
             if not tasks:
                 continue
 
-            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-                futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
-                pbar = tqdm(total=len(futures), desc="Processing Batch Tracklets")
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        self.logger.info(f"Processed tracklet: {result}")
-                        # Merge into our overall dictionary
-                        final_processed_data[result] = result  # adjust as needed
-                    except Exception as e:
-                        self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
-                    pbar.update(1)
-                pbar.close()
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
+            
+            pbar = tqdm(total=len(futures), desc="Processing Batch Tracklets", leave=True, position=0)  # Fixes flickering
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    self.logger.info(f"Processed tracklet: {result}")
+                    # Merge into our overall dictionary
+                    final_processed_data[result] = result  # Adjust as needed
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
+                pbar.update(1)  # Ensure tqdm updates properly
+            pbar.close()
 
         # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially
         if run_legible_eval:

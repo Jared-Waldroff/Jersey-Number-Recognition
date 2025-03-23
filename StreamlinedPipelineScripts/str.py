@@ -31,7 +31,7 @@ import torch
 from torch import nn, optim
 from torch.nn import functional as F
 
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from strhub.data.module import SceneTextDataModule
 from strhub.models.utils import load_from_checkpoint, parse_model_args
@@ -131,7 +131,7 @@ def run_inference(model, data_root, result_file, img_size):
     import os
     import json
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from tqdm import tqdm
+    from tqdm.notebook import tqdm
 
     file_dir = os.path.join(data_root, 'imgs')
     filenames = sorted(os.listdir(file_dir))

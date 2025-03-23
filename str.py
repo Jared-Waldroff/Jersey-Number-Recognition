@@ -28,7 +28,7 @@ import torch
 from torch import nn, optim
 from torch.nn import functional as F
 
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from strhub.data.module import SceneTextDataModule
 from strhub.models.utils import load_from_checkpoint, parse_model_args

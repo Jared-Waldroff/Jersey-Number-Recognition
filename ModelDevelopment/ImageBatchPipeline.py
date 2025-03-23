@@ -10,7 +10,7 @@ import configuration as config
 import os
 import legibility_classifier as lc
 import json
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 class DataLabelsUniverse(Enum):
     TRAIN = "TRAIN"

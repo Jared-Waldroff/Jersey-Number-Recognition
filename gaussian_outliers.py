@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import norm
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import numpy as np
 import json
 import os

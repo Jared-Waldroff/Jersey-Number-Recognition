@@ -1,7 +1,7 @@
 import zipfile
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 from collections import defaultdict
 
 def extract_folder_members(zip_path, members, output_dir):

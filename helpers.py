@@ -4,7 +4,7 @@ import cv2
 import os
 import json
 import numpy as np
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import argparse
 import pandas as pd
 import random

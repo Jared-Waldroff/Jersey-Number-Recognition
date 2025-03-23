@@ -17,7 +17,7 @@ sys.path.append(str(ROOT))  # add ROOT to PATH
 
 import numpy as np
 import torch
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import cv2
 from PIL import Image
 

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from argparse import ArgumentParser
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 # Append ROOT to PATH and change working directory.
 # ROOT = './pose/ViTPose/'

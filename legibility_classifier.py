@@ -15,7 +15,7 @@ import argparse
 import os
 import configuration as cfg
 import time
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import pandas as pd
 import numpy as np
 

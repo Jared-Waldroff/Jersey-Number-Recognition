@@ -4,7 +4,7 @@ import legibility_classifier as lc
 import numpy as np
 import json
 import helpers
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import configuration as config
 from pathlib import Path
 

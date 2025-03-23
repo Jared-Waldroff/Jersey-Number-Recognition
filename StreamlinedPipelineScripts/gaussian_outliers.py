@@ -2,7 +2,7 @@ import numpy as np
 import json
 import os
 import argparse
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import sys
 
 # Add the parent path to the sys path

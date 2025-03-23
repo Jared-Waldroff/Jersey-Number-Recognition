@@ -153,9 +153,10 @@ class ImageFeatureTransformPipeline:
     def pass_through_soccer_ball_filter(self):
         self.logger.info("Determine soccer balls in image(s) using pre-trained model.")
         
-        if self.use_cache and os.path.exists(self.current_tracklet_images_input_dir):
-            self.logger.info(f"Skipping soccer ball filter for tracklet {self.current_tracklet_number} as cache exists.")
-            return
+        # DO NOT USE. Cache management now controlled at root of CentralPipeline.
+        # if self.use_cache and os.path.exists(self.current_tracklet_images_input_dir):
+        #     self.logger.info(f"Skipping soccer ball filter for tracklet {self.current_tracklet_number} as cache exists.")
+        #     return
         
         HEIGHT_MIN = 35
         WIDTH_MIN = 30

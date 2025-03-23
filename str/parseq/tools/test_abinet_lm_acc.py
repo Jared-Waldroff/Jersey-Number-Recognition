@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
 
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from strhub.data.module import SceneTextDataModule
 from strhub.models.abinet.system import ABINet
