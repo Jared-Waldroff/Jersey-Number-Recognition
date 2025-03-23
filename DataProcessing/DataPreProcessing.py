@@ -60,7 +60,14 @@ class CommonConstants(Enum):
 # To avoid issues with serialization
 def _worker_fn(args):
     instance, track, input_folder, val_transforms = args
-    return instance.process_single_track(track, input_folder, val_transforms)
+    result = instance.process_single_track(track, input_folder, val_transforms)
+    if result is None:
+        return None
+    track_name, features = result
+    # Detach from the graph, move to CPU, and clone to avoid shared memory mapping issues.
+    if features is not None:
+        features = features.detach().cpu().clone()
+    return track_name, features
 
 class DataPreProcessing:
     def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
@@ -153,7 +160,15 @@ class DataPreProcessing:
             return (track, processed)
         return None
       
-    def generate_features(self, input_folder, output_folder, num_tracks, tracks: bool=None, classic_transform: bool=False):
+    def generate_features(
+        self,
+        input_folder,
+        output_folder,
+        num_tracks,
+        tracks: bool=None,
+        classic_transform: bool=False,
+        cuda_only: bool=True
+    ):
         """
         Generate preprocessed tensors (features) for each image in the specified tracklets.
 
@@ -163,14 +178,19 @@ class DataPreProcessing:
             num_tracks (int): Maximum number of tracklets to process.
             tracks (list, optional): A list of tracklet names (subfolders) to process.
                                     If None, tracks are obtained via self.get_tracks().
+            classic_transform (bool): Whether to use the "classic" transforms pipeline.
+            cuda_only (bool): If True, use a single process with CUDA – no CPU multiprocessing.
 
         Returns:
             dict: A dictionary mapping tracklet name -> torch.Tensor of shape (N, C, H, W),
                 where N is the number of images in that tracklet.
         
         Notes:
-            - Uses multiprocessing to load images in parallel.
-            - Uses CUDA parallelization for batch-wise processing on GPU.
+            - If `self.use_cuda` and `cuda_only` is True, we process all tracklets on the GPU
+            in a single process (no CPU multiprocessing).
+            - If `self.use_cuda` and `cuda_only` is False, we use both CPU multiprocessing
+            and CUDA batch processing.
+            - Otherwise, we use CPU-only parallel processing with ProcessPoolExecutor.
         """
 
         # Set up the transformation pipeline
@@ -193,6 +213,26 @@ class DataPreProcessing:
         tracks = tracks[:num_tracks]  # Limit to num_tracks
         processed_data = {}
 
+        # -----------------------------------------------
+        # 1) GPU-only mode (single-process, no CPU pool)
+        # -----------------------------------------------
+        if self.use_cuda and cuda_only:
+            if not self.suppress_logging:
+                logging.info("Using single-process GPU mode (no CPU multiprocessing).")
+
+            # Process each tracklet sequentially, but all tensor operations go on GPU
+            for track in tqdm(tracks, desc="Processing tracklets (CUDA-Only)"):
+                result = self.process_single_track(track, input_folder, val_transforms)
+                if result is not None:
+                    track_name, features = result
+                    # Move features to GPU (if desired) or keep on CPU
+                    processed_data[track_name] = features.cuda()
+
+            return processed_data
+
+        # ------------------------------------------------------------------
+        # 2) Double parallelization: CPU multiprocessing + CUDA (existing)
+        # ------------------------------------------------------------------
         if self.use_cuda:
             if not self.suppress_logging:
                 logging.info("Using double parallelization: multiprocessing + CUDA batch processing.")
@@ -202,7 +242,7 @@ class DataPreProcessing:
 
             # Use multiprocessing for parallel track processing
             mp.set_start_method('spawn', force=True)  # Ensure safe CUDA multiprocessing
-            with mp.Pool(processes=6) as pool:
+            with mp.Pool(processes=2) as pool:
                 results = list(tqdm(pool.imap(_worker_fn, worker_args), total=len(worker_args), desc="Processing tracklets (CUDA + CPU)"))
             
             # Aggregate results
@@ -211,12 +251,18 @@ class DataPreProcessing:
                     track_name, features = result
                     processed_data[track_name] = features
 
+        # --------------------------------------
+        # 3) CPU-only mode (ProcessPoolExecutor)
+        # --------------------------------------
         else:
             if not self.suppress_logging:
                 logging.info("Using CPU parallel mode (ProcessPoolExecutor).")
 
             with ProcessPoolExecutor() as executor:
-                futures = {executor.submit(self.process_single_track, track, input_folder, val_transforms): track for track in tracks}
+                futures = {
+                    executor.submit(self.process_single_track, track, input_folder, val_transforms): track
+                    for track in tracks
+                }
                 for future in tqdm(as_completed(futures), total=len(futures), desc="Processing tracklets (CPU)"):
                     result = future.result()
                     if result is not None:

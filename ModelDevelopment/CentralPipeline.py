@@ -769,14 +769,15 @@ class CentralPipeline:
             
         with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
-            for future in tqdm(as_completed(futures),
-                               total=len(futures),
-                               desc="Phase 1: Data Pre-Processing Pipeline Progress"):
+            pbar = tqdm(total=len(futures), desc="Phase 1: Data Pre-Processing Pipeline Progress")
+            for future in as_completed(futures):
                 try:
                     result = future.result()
                     self.logger.info(f"Processed tracklet: {result}")
                 except Exception as e:
                     self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
+                pbar.update(1)
+            pbar.close()
 
         # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially.
         if run_legible_eval:
