@@ -109,9 +109,9 @@ class ImageFeatureTransformPipeline:
         output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
         
         # Check if a cache exists
-        if self.use_cache and os.path.exists(output_file):
-            self.logger.info(f"Feature file {output_file} already exists. Skipping processing.")
-            return
+        # if self.use_cache and os.path.exists(output_file):
+        #     self.logger.info(f"Feature file {output_file} already exists. Skipping processing.")
+        #     return
         
         self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)

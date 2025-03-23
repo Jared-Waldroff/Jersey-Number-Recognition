@@ -49,46 +49,52 @@ def process_tracklet_worker(args):
     Returns:
         str: The tracklet identifier after processing.
     """
-    (tracklet, images, output_processed_data_path, use_cache,
-     input_data_path, tracklets_to_process, common_processed_data_dir,
-     run_soccer_ball_filter, generate_features, run_filter, run_legible,
-     display_transformed_image_sample, suppress_logging, num_images_per_tracklet) = args
+    try:
+        (tracklet, images, output_processed_data_path, use_cache,
+         input_data_path, tracklets_to_process, common_processed_data_dir,
+         run_soccer_ball_filter, generate_features, run_filter, run_legible,
+         display_transformed_image_sample, suppress_logging, num_images_per_tracklet) = args
 
-    # Reinitialize a logger inside the worker.
-    logger = CustomLogger().get_logger()
+        # Limit images if required.
+        if num_images_per_tracklet is not None:
+            images = images[:num_images_per_tracklet]
 
-    # Limit images if required.
-    if num_images_per_tracklet is not None:
-        images = images[:num_images_per_tracklet]
+        # Log entry using the local logger
+        print("Entering worker")
 
-    # Remove cache file if caching is disabled.
-    tracklet_data_file_stub = "features.npy"
-    if not use_cache:
-        tracklet_feature_file = os.path.join(output_processed_data_path, tracklet, tracklet_data_file_stub)
-        if os.path.exists(tracklet_feature_file):
-            os.remove(tracklet_feature_file)
-        logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
+        # Remove cache file if caching is disabled.
+        tracklet_data_file_stub = "features.npy"
+        if not use_cache:
+            tracklet_feature_file = os.path.join(output_processed_data_path, tracklet, tracklet_data_file_stub)
+            if os.path.exists(tracklet_feature_file):
+                os.remove(tracklet_feature_file)
+            logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
 
-    # Instantiate and run the image batch pipeline for this tracklet.
-    pipeline = ImageBatchPipeline(
-        raw_tracklet_images_tensor=images,
-        current_tracklet_number=tracklet,
-        output_tracklet_processed_data_path=os.path.join(output_processed_data_path, tracklet),
-        model=ModelUniverse.DUMMY.value,
-        display_transformed_image_sample=display_transformed_image_sample,
-        suppress_logging=suppress_logging,
-        use_cache=use_cache,
-        input_data_path=input_data_path,
-        output_processed_data_path=output_processed_data_path,
-        tracklets_to_process=tracklets_to_process,
-        common_processed_data_dir=common_processed_data_dir,
-        run_soccer_ball_filter=run_soccer_ball_filter,
-        generate_features=generate_features,
-        run_filter=run_filter,
-        run_legible=run_legible
-    )
-    pipeline.run_model_chain()
-    return tracklet
+        # Instantiate and run the image batch pipeline for this tracklet.
+        pipeline = ImageBatchPipeline(
+            raw_tracklet_images_tensor=images,
+            current_tracklet_number=tracklet,
+            output_tracklet_processed_data_path=os.path.join(output_processed_data_path, tracklet),
+            model=ModelUniverse.DUMMY.value,
+            display_transformed_image_sample=display_transformed_image_sample,
+            suppress_logging=suppress_logging,
+            use_cache=use_cache,
+            input_data_path=input_data_path,
+            output_processed_data_path=output_processed_data_path,
+            tracklets_to_process=tracklets_to_process,
+            common_processed_data_dir=common_processed_data_dir,
+            run_soccer_ball_filter=run_soccer_ball_filter,
+            generate_features=generate_features,
+            run_filter=run_filter,
+            run_legible=run_legible
+        )
+        pipeline.run_model_chain()
+        return tracklet
+
+    except Exception as e:
+        # Log the exception with traceback and re-raise it.
+        logger.error("Exception in process_tracklet_worker", exc_info=True)
+        raise
 
 class CentralPipeline:
     def __init__(self,
@@ -760,11 +766,36 @@ class CentralPipeline:
         final_processed_data = {}
 
         # Loop over batches of tracklets
-        for batch_start in tqdm(range(0, len(tracks), self.tracklet_batch_size),
-                                desc="Batch Processing Tracklets"):
-            batch_tracklets = tracks[batch_start: batch_start + self.tracklet_batch_size]
-            self.logger.info(f"Processing batch with tracklets: {batch_tracklets}")
+        pbar = tqdm(range(0, len(tracks), self.tracklet_batch_size), leave=True, position=0)
 
+        for batch_start in pbar:
+            batch_end = min(batch_start + self.tracklet_batch_size, len(tracks))
+            batch_tracklets = tracks[batch_start:batch_end]
+
+            # Update tqdm description dynamically with batch range
+            pbar.set_description(f"Processing Batch Tracklets ({batch_start}-{batch_end})")
+
+            # Find the index of the first tracklet that isn't cached
+            first_uncached_index = None
+            for i, tracklet in enumerate(batch_tracklets):
+                tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
+                if not self.skip_preprocessing(tracklet_dir):
+                    # Found a tracklet that needs processing
+                    first_uncached_index = i
+                    break
+
+            if first_uncached_index is None:
+                # All tracklets in this batch are cached
+                self.logger.info(f"All tracklets in {batch_start}-{batch_end} are cached. Skipping feature generation.")
+                continue
+            else:
+                # Subset from the first uncached tracklet to the end of the batch
+                if first_uncached_index > 0:
+                    self.logger.info(f"Skipping first {first_uncached_index} cached tracklets in "
+                                    f"batch {batch_start}-{batch_end}. Processing the rest.")
+                batch_tracklets = batch_tracklets[first_uncached_index:]
+
+            # Now we only generate features for what we need in this batch
             # Phase 0: Generate feature data for the current batch
             data_dict = self.data_preprocessor.generate_features(
                 self.input_data_path,
@@ -786,14 +817,9 @@ class CentralPipeline:
             self.init_legibility_classifier_data_file()
 
             # Phase 1: Process each tracklet in parallel for this batch
+            self.logger.info("DEBUG: Just before getting args for workers")
             tasks = []
             for tracklet in self.tracklets_to_process:
-                # Check if this tracklet’s directory is already processed
-                tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
-                if self.skip_preprocessing(tracklet_dir):
-                    self.logger.info(f"All required files exist for {tracklet} – skipping.")
-                    continue  # Skip adding this tracklet to the tasks
-
                 images = data_dict[tracklet]
                 args = (
                     tracklet,
@@ -815,22 +841,36 @@ class CentralPipeline:
 
             # If no tasks remain after skipping, move on
             if not tasks:
+                self.logger.info("Should not be here. No tasks to process.")
                 continue
 
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
-            
-            pbar = tqdm(total=len(futures), desc="Processing Batch Tracklets", leave=True, position=0)  # Fixes flickering
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    self.logger.info(f"Processed tracklet: {result}")
-                    # Merge into our overall dictionary
-                    final_processed_data[result] = result  # Adjust as needed
-                except Exception as e:
-                    self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
-                pbar.update(1)  # Ensure tqdm updates properly
-            pbar.close()
+            self.logger.info("DEBUG: Just before worker submission")
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
+
+                pbar = tqdm(total=len(futures), 
+                            desc=f"Processing Batch Tracklets ({batch_start}-{batch_start + self.tracklet_batch_size})", 
+                            leave=True, position=0)  # Fixes flickering
+
+                for future in as_completed(futures):
+                    tracklet_name = futures[future]  # Get tracklet name associated with this future
+                    if future.exception() is not None:
+                        # Log the worker exception BEFORE calling .result()
+                        self.logger.error(f"Worker crashed for tracklet {tracklet_name}: {future.exception()}", exc_info=True)
+                        continue
+
+                    try:
+                        result = future.result()  # Retrieve the successful result
+                        self.logger.info(f"Processed tracklet: {result}")
+                        # Merge into our overall dictionary
+                        final_processed_data[result] = result  # Adjust as needed
+                    except Exception as e:
+                        # Log unexpected exceptions
+                        self.logger.error(f"Unexpected error processing tracklet {tracklet_name}: {e}", exc_info=True)
+                    
+                    pbar.update(1)  # Ensure tqdm updates properly
+
+                pbar.close()
 
         # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially
         if run_legible_eval:
