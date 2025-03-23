@@ -711,6 +711,28 @@ class CentralPipeline:
         print(f"Mistakes (illegible predicted): {illegible_mistake_count}")
         print(f"Mistakes (legible but GT illegible): {illegible_gt_count}")
         print(f"Correct in full results but not picked: {count_of_correct_in_full_results}")
+
+    def skip_preprocessing(self, current_tracklet_dir) -> bool:
+        if self.use_cache:
+            # Files to check if they exist
+            files_to_check = [
+                "features.npy",
+                "illegible_results.json",
+                "legible_results.json",
+                "main_subject_gauss_th=3.5_r=1.json",
+                "main_subject_gauss_th=3.5_r=2.json",
+                "main_subject_gauss_th=3.5_r=3.json",
+                "soccer_ball.json"
+            ]
+            # If any one of them is missing, return False (i.e., do NOT skip)
+            for file in files_to_check:
+                if not os.path.exists(os.path.join(current_tracklet_dir, file)):
+                    return False
+
+            self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
+            return True
+
+        return False  # If no use_cache, we never skip
         
     def run_soccernet(self,
                     run_soccer_ball_filter=True,
@@ -728,7 +750,7 @@ class CentralPipeline:
         if self.num_tracklets is None:
             self.num_tracklets = self.total_tracklets
 
-        # Determine which tracklets to process.
+        # Determine which tracklets to process
         if self.tracklets is None:
             self.logger.info("No tracklets provided. Retrieving from input folder.")
             tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
@@ -736,38 +758,43 @@ class CentralPipeline:
             tracks = self.tracklets
 
         tracks = tracks[:self.num_tracklets]
-
         final_processed_data = {}
 
-        # Loop over batches of tracklets.
+        # Loop over batches of tracklets
         for batch_start in tqdm(range(0, len(tracks), self.tracklet_batch_size),
                                 desc="Batch Processing Tracklets"):
             batch_tracklets = tracks[batch_start: batch_start + self.tracklet_batch_size]
             self.logger.info(f"Processing batch with tracklets: {batch_tracklets}")
 
-            # Phase 0: Generate feature data for the current batch.
+            # Phase 0: Generate feature data for the current batch
             data_dict = self.data_preprocessor.generate_features(
                 self.input_data_path,
                 self.output_processed_data_path,
                 num_tracks=len(batch_tracklets),
                 tracks=batch_tracklets
             )
-            
-            # Log debug info.
+
+            # Log debug info
             sample_key = list(data_dict.keys())[0]
             num_images_per_tracklet_local = len(data_dict[sample_key])
             self.logger.info(f"DEBUG: Number of images per tracklet in batch: {num_images_per_tracklet_local}")
-            
-            # Set working subset for this batch.
+
+            # Set working subset for this batch
             self.tracklets_to_process = list(data_dict.keys())
-            
-            # Initialize files that rely on self.tracklets_to_process.
+
+            # Initialize files that rely on self.tracklets_to_process
             self.init_soccer_ball_filter_data_file()
             self.init_legibility_classifier_data_file()
-            
-            # Phase 1: Process each tracklet in parallel for this batch.
+
+            # Phase 1: Process each tracklet in parallel for this batch
             tasks = []
             for tracklet in self.tracklets_to_process:
+                # Check if this tracklet’s directory is already processed
+                tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
+                if self.skip_preprocessing(tracklet_dir):
+                    self.logger.info(f"All required files exist for {tracklet} – skipping.")
+                    continue  # Skip adding this tracklet to the tasks
+
                 images = data_dict[tracklet]
                 args = (
                     tracklet,
@@ -783,10 +810,14 @@ class CentralPipeline:
                     run_legible,
                     self.display_transformed_image_sample,
                     self.suppress_logging,
-                    self.num_images_per_tracklet  # <-- Additional parameter if needed.
+                    self.num_images_per_tracklet
                 )
                 tasks.append(args)
-                
+
+            # If no tasks remain after skipping, move on
+            if not tasks:
+                continue
+
             with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
                 pbar = tqdm(total=len(futures), desc="Processing Batch Tracklets")
@@ -794,19 +825,18 @@ class CentralPipeline:
                     try:
                         result = future.result()
                         self.logger.info(f"Processed tracklet: {result}")
-                        # Merge the result into our overall dictionary.
-                        final_processed_data[result] = result  # Adjust as needed (e.g., store features)
+                        # Merge into our overall dictionary
+                        final_processed_data[result] = result  # adjust as needed
                     except Exception as e:
                         self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
                     pbar.update(1)
                 pbar.close()
-            # Optionally, free data_dict memory here (if needed) before proceeding to the next batch.
-        
-        # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially.
+
+        # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially
         if run_legible_eval:
             self.evaluate_legibility_results()
         if run_pose:
-            # CRITICAL: Pose processing should occur after legibility results are computed.
+            # CRITICAL: Pose processing should occur after legibility results are computed
             self.init_json_for_pose_estimator()
             self.run_pose_estimation_model()
         if run_crops:
