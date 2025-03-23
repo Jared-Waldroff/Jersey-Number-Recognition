@@ -30,7 +30,8 @@ class ImageFeatureTransformPipeline:
                  run_filter: bool,
                  model_version='res50_market',
                  suppress_logging: bool=False,
-                 use_cache: bool=True):
+                 use_cache: bool=True,
+                 batch_size: int = 2):
         self.raw_image_batch = raw_image_batch
         self.output_tracklet_processed_data_path = output_tracklet_processed_data_path
         self.model_version = model_version
@@ -41,6 +42,7 @@ class ImageFeatureTransformPipeline:
         self.generate_features = generate_features
         self.run_filter = run_filter
         self.parallelize = True
+        self.batch_size = batch_size
         
         self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
         self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir
@@ -91,71 +93,85 @@ class ImageFeatureTransformPipeline:
         
         self.logger.info("Done removing outliers")
     
-    def pass_through_reid_centroid(self):
+    def pass_through_reid_centroid(self, with_cuda=True):
         """
         Process a raw image (or batch) through the pre-trained centroid model.
         This method:
           - Loads the appropriate model using a config and checkpoint.
           - Ensures input self.raw_image_batch is 4D (N, C, H, W); if 3D, unsqueezes.
-          - Feeds the image through model.backbone and batch-norm layer.
-          - Flattens the global features per sample.
-          - Appends the feature vector to the output file.
+          - Splits the image batch into mini-batches to limit GPU memory usage.
+          - Feeds each mini-batch through model.backbone and batch-norm layer.
+          - Concatenates the flattened features per sample.
+          - Saves the final feature vector to the output file.
         
         Args:
-            self.raw_image_batch (torch.Tensor): Input tensor (C, H, W) or (N, C, H, W).
-            self.output_tracklet_processed_data_path (str): File path to save the features.
-            self.model_version (str): Version key to select model configuration.
+            with_cuda (bool): Whether to use CUDA for model inference (always True in our case).
         
         Returns:
             np.ndarray: Flattened feature vector(s) with shape (N, d)
         """
-        # Update the ver_to_specs dictionary:
-        # Append new features to self.output_tracklet_processed_data_path:
-        # NOTE: The only time we append is when the image tensor batch sent through ImageBatchPipeline is < count(images_in_tracklet).
-        # i.e. this would be the case for just passing 2 images through the pipeline, from the same batch, and appending data for img 2 to img 1.
-        output_file = os.path.join(self.output_tracklet_processed_data_path, CommonConstants.FEATURE_DATA_FILE_NAME.value)
+        output_file = os.path.join(self.output_tracklet_processed_data_path,
+                                   CommonConstants.FEATURE_DATA_FILE_NAME.value)
         
-        # Check if a cache exists
-        # if self.use_cache and os.path.exists(output_file):
-        #     self.logger.info(f"Feature file {output_file} already exists. Skipping processing.")
-        #     return
-        
+        # Update ver_to_specs
         self.ver_to_specs["res50_market"] = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_1.value)
         self.ver_to_specs["res50_duke"]   = (DataPaths.REID_CONFIG_YAML.value, DataPaths.REID_MODEL_2.value)
         
         CONFIG_FILE, MODEL_FILE = self.get_specs_from_version(self.model_version)
         cfg.merge_from_file(CONFIG_FILE)
-        opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
+        opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True,
+                "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
         cfg.merge_from_list(opts)
         
-        with GPU_SEMAPHORE:
-            model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
-            if self.use_cuda:
+        # Only use the semaphore if using CUDA.
+        if with_cuda and self.use_cuda:
+            with GPU_SEMAPHORE:
+                model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
                 model.to('cuda')
-            model.eval()
-
-            # Make sure raw_image_batch is on GPU inside the semaphore
-            if self.raw_image_batch.dim() == 3:
-                self.raw_image_batch = self.raw_image_batch.unsqueeze(0)
-            
-            with torch.no_grad():
-                input_tensor = self.raw_image_batch.cuda() if self.use_cuda else self.raw_image_batch
-                _, global_feat = model.backbone(input_tensor)
-                global_feat = model.bn(global_feat)
-
-            # global_feat shape: (N, d). We keep the batch dimension.
-            processed_image = global_feat.cpu().numpy() # shape: (N, d)
-        
-        if os.path.exists(output_file):
-            existing = np.load(output_file, allow_pickle=True)
-            combined = np.concatenate([existing, processed_image], axis=0)
-            
-            np.save(output_file, combined)
         else:
-            np.save(output_file, processed_image)
-        self.logger.info(f"Saved features for tracklet with shape {processed_image.shape} to {output_file}")
+            model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg,
+                                                  map_location=torch.device('cpu'))
+        
+        model.eval()
+        
+        # Ensure raw_image_batch is 4D.
+        if self.raw_image_batch.dim() == 3:
+            self.raw_image_batch = self.raw_image_batch.unsqueeze(0)
+        
+        # Determine total number of images.
+        num_images = self.raw_image_batch.size(0)
+        feature_list = []
+        
+        # Process in mini-batches.
+        with torch.no_grad():
+            # Wrap entire inference loop in the GPU semaphore if using CUDA.
+            if with_cuda and self.use_cuda:
+                context = GPU_SEMAPHORE
+            else:
+                # Use a dummy context manager if not using CUDA. This is just to modularize the code a bit
+                from contextlib import nullcontext
+                context = nullcontext()
             
-        return processed_image        
+            with context:
+                # For the current tracklet, subset the images into a mini-batch to avoid overloading our GPU and hitting out-of-memory problems.
+                for i in range(0, num_images, self.batch_size):
+                    batch = self.raw_image_batch[i:i+self.batch_size]
+                    input_tensor = batch.cuda() if (with_cuda and self.use_cuda) else batch.cpu()
+                    _, global_feat = model.backbone(input_tensor)
+                    global_feat = model.bn(global_feat)
+                    feature_list.append(global_feat.cpu()) # Bring back to CPU for concatenation.
+        
+        # Concatenate features from all mini-batches.
+        global_features = torch.cat(feature_list, dim=0)
+        processed_image = global_features.numpy()  # shape: (N, d)
+        np.save(output_file, processed_image)
+        self.logger.info(f"Saved features for tracklet with shape {processed_image.shape} to {output_file}")
+        
+        # Free GPU memory.
+        del model
+        torch.cuda.empty_cache()
+        
+        return processed_image
         
     def pass_through_soccer_ball_filter(self):
         self.logger.info("Determine soccer balls in image(s) using pre-trained model.")
