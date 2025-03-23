@@ -49,6 +49,8 @@ def process_tracklet_worker(args):
     Returns:
         str: The tracklet identifier after processing.
     """
+    logger = CustomLogger().get_logger()
+    
     try:
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
@@ -60,7 +62,6 @@ def process_tracklet_worker(args):
             images = images[:num_images_per_tracklet]
 
         # Log entry using the local logger
-        print("Entering worker")
 
         # Remove cache file if caching is disabled.
         tracklet_data_file_stub = "features.npy"
@@ -441,7 +442,7 @@ class CentralPipeline:
         aggregated_saved = []
         total_misses = 0
 
-        # Use ThreadPoolExecutor for parallel processing.
+        # Parallel processing.
         with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             futures = [
                 executor.submit(self.process_crop, entry, all_legible, crops_destination_dir)
@@ -844,8 +845,10 @@ class CentralPipeline:
                 self.logger.info("Should not be here. No tasks to process.")
                 continue
 
-            self.logger.info("DEBUG: Just before worker submission")
-            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            # RECOMMENDED MULTIPLIER: 3-5x number of workers.
+            # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
+            # you would do 6*3 or 6*5 as input to this ThreadPool
+            with ThreadPoolExecutor(max_workers=self.num_workers * 3) as executor:
                 futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
                 pbar = tqdm(total=len(futures), 

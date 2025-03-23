@@ -3,12 +3,19 @@ from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformatio
 from DataProcessing.DataPreProcessing import DataPaths, CommonConstants
 from reid.CentroidsReidRepo.train_ctl_model import CTLModel
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
+import threading
+import configuration as config
 import torch
 import os
 import numpy as np
 import subprocess
 import json
 import cv2
+
+# Limit concurrent GPU calls (example).
+# CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
+# This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
+GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 class ImageFeatureTransformPipeline:
     def __init__(self,
@@ -121,23 +128,23 @@ class ImageFeatureTransformPipeline:
         opts = ["MODEL.PRETRAIN_PATH", MODEL_FILE, "MODEL.PRETRAINED", True, "TEST.ONLY_TEST", True, "MODEL.RESUME_TRAINING", False]
         cfg.merge_from_list(opts)
         
-        model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
-        if self.use_cuda:
-            model.to('cuda')
-            print("using GPU")
-        model.eval()
-        
-        # Ensure input is 4D
-        if self.raw_image_batch.dim() == 3:
-            self.raw_image_batch = self.raw_image_batch.unsqueeze(0)
-        
-        with torch.no_grad():
-            input_tensor = self.raw_image_batch.cuda() if self.use_cuda else self.raw_image_batch
-            _, global_feat = model.backbone(input_tensor)
-            global_feat = model.bn(global_feat)
-        
-        # global_feat shape: (N, d). We keep the batch dimension.
-        processed_image = global_feat.cpu().numpy()  # shape: (N, d)
+        with GPU_SEMAPHORE:
+            model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
+            if self.use_cuda:
+                model.to('cuda')
+            model.eval()
+
+            # Make sure raw_image_batch is on GPU inside the semaphore
+            if self.raw_image_batch.dim() == 3:
+                self.raw_image_batch = self.raw_image_batch.unsqueeze(0)
+            
+            with torch.no_grad():
+                input_tensor = self.raw_image_batch.cuda() if self.use_cuda else self.raw_image_batch
+                _, global_feat = model.backbone(input_tensor)
+                global_feat = model.bn(global_feat)
+
+            # global_feat shape: (N, d). We keep the batch dimension.
+            processed_image = global_feat.cpu().numpy() # shape: (N, d)
         
         if os.path.exists(output_file):
             existing = np.load(output_file, allow_pickle=True)
@@ -191,7 +198,7 @@ class ImageFeatureTransformPipeline:
         mean_w, mean_h = np.mean(width_list), np.mean(height_list)
         if mean_h <= HEIGHT_MIN and mean_w <= WIDTH_MIN:
             # this must be a soccer ball
-            ball_list.append(track)
+            ball_list.append(self.current_tracklet_number)
 
         self.logger.info(f"Found {len(ball_list)} balls, Ball list: {ball_list}")
         
