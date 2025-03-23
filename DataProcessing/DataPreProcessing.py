@@ -242,7 +242,7 @@ class DataPreProcessing:
 
             # Use multiprocessing for parallel track processing
             mp.set_start_method('spawn', force=True)  # Ensure safe CUDA multiprocessing
-            with mp.Pool(processes=5) as pool:
+            with mp.Pool(processes=6) as pool:
                 results = list(tqdm(pool.imap(_worker_fn, worker_args), total=len(worker_args), desc="Processing tracklets (CUDA + CPU)"))
             
             # Aggregate results

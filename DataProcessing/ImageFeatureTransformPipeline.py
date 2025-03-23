@@ -54,9 +54,10 @@ class ImageFeatureTransformPipeline:
     def pass_through_gaussian_outliers_filter(self):
         self.logger.info("Identifying and removing outliers by calling gaussian_outliers_streamlined.py on feature file")
         
-        if self.use_cache and os.path.exists(self.current_tracklet_processed_data_dir):
-            self.logger.info(f"Skipping outlier removal for tracklet {self.current_tracklet_number} as cache exists.")
-            return
+        # DO NOT USE: Cache management now controlled in CentralPipeline.
+        # if self.use_cache and os.path.exists(self.current_tracklet_processed_data_dir):
+        #     self.logger.info(f"Skipping outlier removal for tracklet {self.current_tracklet_number} as cache exists.")
+        #     return
         
         command = [
             "python",
