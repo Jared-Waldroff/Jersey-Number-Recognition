@@ -15,7 +15,7 @@ import cv2
 # Limit concurrent GPU calls (example).
 # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
 # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
-GPU_SEMAPHORE = threading.Semaphore(value=2)
+GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 class ImageFeatureTransformPipeline:
     def __init__(self,
