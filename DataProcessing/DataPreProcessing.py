@@ -145,7 +145,7 @@ class DataPreProcessing:
                 # Simply store the tensor (add a batch dimension for later concatenation)
                 track_features.append(transformed.unsqueeze(0))
             except Exception as e:
-                self.logging.info(f"Error processing {img_full_path}: {e}")
+                logging.info(f"Error processing {img_full_path}: {e}")
                 continue
 
         if track_features:
@@ -202,7 +202,7 @@ class DataPreProcessing:
 
             # Use multiprocessing for parallel track processing
             mp.set_start_method('spawn', force=True)  # Ensure safe CUDA multiprocessing
-            with mp.Pool(processes=mp.cpu_count()) as pool:
+            with mp.Pool(processes=6) as pool:
                 results = list(tqdm(pool.imap(_worker_fn, worker_args), total=len(worker_args), desc="Processing tracklets (CUDA + CPU)"))
             
             # Aggregate results
