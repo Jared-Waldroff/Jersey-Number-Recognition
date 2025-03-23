@@ -104,7 +104,8 @@ class CentralPipeline:
                 use_cache: bool=True,
                 suppress_logging: bool=False,
                 num_tracklets: int=None,
-                num_images_per_tracklet: int=None
+                num_images_per_tracklet: int=None,
+                tracklet_batch_size = 32
                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
@@ -120,6 +121,7 @@ class CentralPipeline:
         self.num_tracklets = num_tracklets
         self.num_images_per_tracklet = num_images_per_tracklet
         self.num_workers = num_workers
+        self.tracklet_batch_size = tracklet_batch_size
         
         self.loaded_ball_tracks = None
         self.analysis_results = None
@@ -711,91 +713,107 @@ class CentralPipeline:
         print(f"Correct in full results but not picked: {count_of_correct_in_full_results}")
         
     def run_soccernet(self,
-                      run_soccer_ball_filter=True,
-                      generate_features=True,
-                      run_filter=True,
-                      run_legible=True,
-                      run_legible_eval=True,
-                      run_pose=True,
-                      run_crops=True,
-                      run_str=True,
-                      run_combine=True,
-                      run_eval=True):
+                    run_soccer_ball_filter=True,
+                    generate_features=True,
+                    run_filter=True,
+                    run_legible=True,
+                    run_legible_eval=True,
+                    run_pose=True,
+                    run_crops=True,
+                    run_str=True,
+                    run_combine=True,
+                    run_eval=True):
         self.logger.info("Running the SoccerNet pipeline.")
 
         if self.num_tracklets is None:
             self.num_tracklets = self.total_tracklets
 
-        # Phase 0: Generate feature data for all tracklets.
-        data_dict = self.data_preprocessor.generate_features(
-            self.input_data_path,
-            self.output_processed_data_path,
-            num_tracks=self.num_tracklets,
-            tracks=self.tracklets
-        )
-        
-        # Get length of data dict
-        num_images_per_tracklet_local = len(data_dict[list(data_dict.keys())[0]])
-        self.logger.info(f"DEBUG Number of images per tracklet (should be < max (1400+)): {num_images_per_tracklet_local}")
-        
-        # This is our working subset.
-        self.tracklets_to_process = list(data_dict.keys())
-        
-        # These init methods rely on self.tracklets_to_process.
-        self.init_soccer_ball_filter_data_file()
-        self.init_legibility_classifier_data_file()
-        
-        # Phase 1: Process each tracklet in parallel.
-        tasks = []
-        for tracklet in self.tracklets_to_process:
-            images = data_dict[tracklet]
-            args = (
-                tracklet,
-                images,
-                self.output_processed_data_path,
-                self.use_cache,
-                self.input_data_path,
-                self.tracklets_to_process,
-                self.common_processed_data_dir,
-                run_soccer_ball_filter,
-                generate_features,
-                run_filter,
-                run_legible,
-                self.display_transformed_image_sample,
-                self.suppress_logging,
-                self.num_images_per_tracklet  # <-- Add this
-            )
-            tasks.append(args)
-            
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
-            pbar = tqdm(total=len(futures), desc="Phase 1: Data Pre-Processing Pipeline Progress")
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    self.logger.info(f"Processed tracklet: {result}")
-                except Exception as e:
-                    self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
-                pbar.update(1)
-            pbar.close()
+        # Determine which tracklets to process.
+        if self.tracklets is None:
+            self.logger.info("No tracklets provided. Retrieving from input folder.")
+            tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+        else:
+            tracks = self.tracklets
 
+        tracks = tracks[:self.num_tracklets]
+
+        final_processed_data = {}
+
+        # Loop over batches of tracklets.
+        for batch_start in tqdm(range(0, len(tracks), self.tracklet_batch_size),
+                                desc="Batch Processing Tracklets"):
+            batch_tracklets = tracks[batch_start: batch_start + self.tracklet_batch_size]
+            self.logger.info(f"Processing batch with tracklets: {batch_tracklets}")
+
+            # Phase 0: Generate feature data for the current batch.
+            data_dict = self.data_preprocessor.generate_features(
+                self.input_data_path,
+                self.output_processed_data_path,
+                num_tracks=len(batch_tracklets),
+                tracks=batch_tracklets
+            )
+            
+            # Log debug info.
+            sample_key = list(data_dict.keys())[0]
+            num_images_per_tracklet_local = len(data_dict[sample_key])
+            self.logger.info(f"DEBUG: Number of images per tracklet in batch: {num_images_per_tracklet_local}")
+            
+            # Set working subset for this batch.
+            self.tracklets_to_process = list(data_dict.keys())
+            
+            # Initialize files that rely on self.tracklets_to_process.
+            self.init_soccer_ball_filter_data_file()
+            self.init_legibility_classifier_data_file()
+            
+            # Phase 1: Process each tracklet in parallel for this batch.
+            tasks = []
+            for tracklet in self.tracklets_to_process:
+                images = data_dict[tracklet]
+                args = (
+                    tracklet,
+                    images,
+                    self.output_processed_data_path,
+                    self.use_cache,
+                    self.input_data_path,
+                    self.tracklets_to_process,
+                    self.common_processed_data_dir,
+                    run_soccer_ball_filter,
+                    generate_features,
+                    run_filter,
+                    run_legible,
+                    self.display_transformed_image_sample,
+                    self.suppress_logging,
+                    self.num_images_per_tracklet  # <-- Additional parameter if needed.
+                )
+                tasks.append(args)
+                
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
+                pbar = tqdm(total=len(futures), desc="Processing Batch Tracklets")
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        self.logger.info(f"Processed tracklet: {result}")
+                        # Merge the result into our overall dictionary.
+                        final_processed_data[result] = result  # Adjust as needed (e.g., store features)
+                    except Exception as e:
+                        self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
+                    pbar.update(1)
+                pbar.close()
+            # Optionally, free data_dict memory here (if needed) before proceeding to the next batch.
+        
         # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially.
         if run_legible_eval:
             self.evaluate_legibility_results()
-            
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed.
             self.init_json_for_pose_estimator()
             self.run_pose_estimation_model()
-            
         if run_crops:
             self.run_crops_model()
-            
         if run_str:
             self.run_str_model()
-        
         if run_combine:
             self.combine_results()
-            
         if run_eval:
             self.evaluate_end_results()

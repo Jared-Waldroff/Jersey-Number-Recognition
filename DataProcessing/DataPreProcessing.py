@@ -167,7 +167,7 @@ class DataPreProcessing:
         num_tracks,
         tracks: bool=None,
         classic_transform: bool=False,
-        cuda_only: bool=True
+        cuda_only: bool=False
     ):
         """
         Generate preprocessed tensors (features) for each image in the specified tracklets.
@@ -242,7 +242,7 @@ class DataPreProcessing:
 
             # Use multiprocessing for parallel track processing
             mp.set_start_method('spawn', force=True)  # Ensure safe CUDA multiprocessing
-            with mp.Pool(processes=2) as pool:
+            with mp.Pool(processes=5) as pool:
                 results = list(tqdm(pool.imap(_worker_fn, worker_args), total=len(worker_args), desc="Processing tracklets (CUDA + CPU)"))
             
             # Aggregate results
