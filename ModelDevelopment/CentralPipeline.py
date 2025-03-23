@@ -55,7 +55,7 @@ def process_tracklet_worker(args):
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
          run_soccer_ball_filter, generate_features, run_filter, run_legible,
-         display_transformed_image_sample, suppress_logging, num_images_per_tracklet) = args
+         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size) = args
 
         # Limit images if required.
         if num_images_per_tracklet is not None:
@@ -87,7 +87,8 @@ def process_tracklet_worker(args):
             run_soccer_ball_filter=run_soccer_ball_filter,
             generate_features=generate_features,
             run_filter=run_filter,
-            run_legible=run_legible
+            run_legible=run_legible,
+            image_batch_size=image_batch_size
         )
         pipeline.run_model_chain()
         return tracklet
@@ -111,7 +112,8 @@ class CentralPipeline:
                 suppress_logging: bool=False,
                 num_tracklets: int=None,
                 num_images_per_tracklet: int=None,
-                tracklet_batch_size = 32
+                tracklet_batch_size = 32,
+                image_batch_size: int=200,
                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
@@ -128,6 +130,7 @@ class CentralPipeline:
         self.num_images_per_tracklet = num_images_per_tracklet
         self.num_workers = num_workers
         self.tracklet_batch_size = tracklet_batch_size
+        self.image_batch_size = image_batch_size
         
         self.loaded_ball_tracks = None
         self.analysis_results = None
@@ -768,7 +771,9 @@ class CentralPipeline:
 
         # Loop over batches of tracklets
         pbar = tqdm(range(0, len(tracks), self.tracklet_batch_size), leave=True, position=0)
-
+        
+        self.logger.info(f"Tracklet batch size: {self.tracklet_batch_size}")
+        self.logger.info(f"Image batch size: {self.image_batch_size}")
         for batch_start in pbar:
             batch_end = min(batch_start + self.tracklet_batch_size, len(tracks))
             batch_tracklets = tracks[batch_start:batch_end]
@@ -805,11 +810,6 @@ class CentralPipeline:
                 tracks=batch_tracklets
             )
 
-            # Log debug info
-            sample_key = list(data_dict.keys())[0]
-            num_images_per_tracklet_local = len(data_dict[sample_key])
-            self.logger.info(f"DEBUG: Number of images per tracklet in batch: {num_images_per_tracklet_local}")
-
             # Set working subset for this batch
             self.tracklets_to_process = list(data_dict.keys())
 
@@ -818,7 +818,6 @@ class CentralPipeline:
             self.init_legibility_classifier_data_file()
 
             # Phase 1: Process each tracklet in parallel for this batch
-            self.logger.info("DEBUG: Just before getting args for workers")
             tasks = []
             for tracklet in self.tracklets_to_process:
                 images = data_dict[tracklet]
@@ -836,7 +835,8 @@ class CentralPipeline:
                     run_legible,
                     self.display_transformed_image_sample,
                     self.suppress_logging,
-                    self.num_images_per_tracklet
+                    self.num_images_per_tracklet,
+                    self.image_batch_size
                 )
                 tasks.append(args)
 

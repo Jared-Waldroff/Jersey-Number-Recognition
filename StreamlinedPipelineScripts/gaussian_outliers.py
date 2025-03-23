@@ -123,7 +123,7 @@ def filter_outliers(
         # Open in write mode as we are guaranteed to only write once
         # If use_cache is true and the file already exists, do not write it
         if os.path.exists(result_file_path) and use_cache:
-            self.logger.info(f"File {result_file_path} already exists. Skipping writing to it.")
+            logger.info(f"File {result_file_path} already exists. Skipping writing to it.")
             continue
         
         # Write the file (it will not already exist)

@@ -38,7 +38,8 @@ class ImageBatchPipeline:
                 run_legible: bool,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
-                use_cache: bool=True):
+                use_cache: bool=True,
+                image_batch_size: int = 200):
         self.display_transformed_image_sample = display_transformed_image_sample
         self.raw_tracklet_images_tensor = raw_tracklet_images_tensor  # Either shape (C, H, W) or (N, C, H, W)
         self.output_tracklet_processed_data_path = output_tracklet_processed_data_path
@@ -49,10 +50,11 @@ class ImageBatchPipeline:
         self.common_processed_data_dir = common_processed_data_dir
         self.output_processed_data_path = output_processed_data_path
         self.suppress_logging = suppress_logging
-        self.run_soccer_ball_filter=run_soccer_ball_filter,
+        self.run_soccer_ball_filter=run_soccer_ball_filter
         self.generate_features=generate_features
-        self.run_filter=run_filter,
-        self.run_legible=run_legible,
+        self.run_filter=run_filter
+        self.run_legible=run_legible
+        self.image_batch_size = image_batch_size
         self.image_feature_transform = ImageFeatureTransformPipeline(
           run_soccer_ball_filter=run_soccer_ball_filter,
           generate_features=generate_features,
@@ -64,7 +66,8 @@ class ImageBatchPipeline:
           raw_image_batch=self.raw_tracklet_images_tensor,
           output_tracklet_processed_data_path=self.output_tracklet_processed_data_path,
           suppress_logging=self.suppress_logging,
-          use_cache=self.use_cache)
+          use_cache=self.use_cache,
+          image_batch_size=self.image_batch_size)
         self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         

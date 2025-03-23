@@ -11,6 +11,7 @@ import numpy as np
 import subprocess
 import json
 import cv2
+import math
 
 # Limit concurrent GPU calls (example).
 # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
@@ -31,7 +32,7 @@ class ImageFeatureTransformPipeline:
                  model_version='res50_market',
                  suppress_logging: bool=False,
                  use_cache: bool=True,
-                 batch_size: int = 2):
+                 image_batch_size: int = 200):
         self.raw_image_batch = raw_image_batch
         self.output_tracklet_processed_data_path = output_tracklet_processed_data_path
         self.model_version = model_version
@@ -42,7 +43,16 @@ class ImageFeatureTransformPipeline:
         self.generate_features = generate_features
         self.run_filter = run_filter
         self.parallelize = True
-        self.batch_size = batch_size
+        self.image_batch_size = image_batch_size
+        
+        # AUTOMATIC BATCH SIZE DETERMINATION
+        # Determine the number of batches
+        num_images_to_process = len(raw_image_batch)
+
+        # Ensure at least one batch, using ceil to cover the remainder images
+        # print(f"DEBUG: raw_image_batch length: {num_images_to_process}")
+        # print(f"DEBUG: image_batch_size: {self.image_batch_size}")
+        self.batch_size = max(1, math.ceil(num_images_to_process / self.image_batch_size))
         
         self.current_tracklet_images_input_dir = current_tracklet_images_input_dir
         self.current_tracklet_processed_data_dir = current_tracklet_processed_data_dir
