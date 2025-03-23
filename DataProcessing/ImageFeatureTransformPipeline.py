@@ -83,13 +83,12 @@ class ImageFeatureTransformPipeline:
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            self.logger.info(result.stdout)  # Print logs from gaussian_outliers_streamlined.py
-            #self.logger.error(result.stderr) # Redundant
+            self.logger.info(result.stdout)  # Log standard output
+            self.logger.error(result.stderr)  # Capture and log standard error
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running gaussian_outliers_streamlined.py: {e}")
-            # Log the stdout and stderr from the exception (if available)
-            self.logger.info(e.stdout)
-            #self.logger.error(e.stderr) # Redundant
+            self.logger.error(f"STDOUT:\n{e.stdout}")  # Print captured standard output
+            self.logger.error(f"STDERR:\n{e.stderr}")  # Print captured standard error
         
         self.logger.info("Done removing outliers")
     
