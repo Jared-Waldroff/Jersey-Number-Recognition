@@ -168,8 +168,6 @@ class ImageBatchPipeline:
                         updated_tracklets.append(track)
                 self.tracklets_to_process = self.tracklets_to_process
                 
-                self.logger.info("This tracklet is a soccer ball track. Marking it as not legibile.")
-
         if use_filtered:
             images = filtered[self.current_tracklet_number]
         else:
@@ -183,7 +181,8 @@ class ImageBatchPipeline:
         track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
         legible = list(np.nonzero(track_results))[0]
         
-        if len(legible) == 0:
+        if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls):
+            self.logger.info(f"Tracklet {self.current_tracklet_number} is illegible.")
             self.illegible_tracklets.append(self.current_tracklet_number)
         else:
             legible_images = [images_full_path[i] for i in legible]

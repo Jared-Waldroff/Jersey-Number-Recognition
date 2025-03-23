@@ -736,7 +736,7 @@ class CentralPipeline:
             # If any one of them is missing, return False (i.e., do NOT skip)
             for file in files_to_check:
                 if not os.path.exists(os.path.join(current_tracklet_dir, file)):
-                    self.logger.info("Cache file missing. Preprocessing cannot be skipped")
+                    #self.logger.info("Cache file missing. Preprocessing cannot be skipped")
                     return False
 
             self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
@@ -765,6 +765,7 @@ class CentralPipeline:
         else:
             self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
             tracks = self.tracklets_to_process_override
+            self.tracklets_to_process = tracks
 
         final_processed_data = {}
 

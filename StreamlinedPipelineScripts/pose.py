@@ -7,12 +7,18 @@ from argparse import ArgumentParser
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm.notebook import tqdm
 
-# Append ROOT to PATH and change working directory.
+os.chdir(str(Path.cwd().parent.parent))
+
+# Now CD into pose
+os.chdir('./pose/ViTPose/')
+print("Current working directory: ", os.getcwd())
+
+# Append ROOT to PATH
 # ROOT = './pose/ViTPose/'
 # sys.path.append(str(ROOT))
 
-os.chdir(str(Path.cwd().parent))
-print("Current working directory: ", os.getcwd())
+# Add the current working directory to the path
+sys.path.append(os.getcwd())
 
 from xtcocotools.coco import COCO
 from mmpose.apis import (inference_top_down_pose_model, init_pose_model,
@@ -25,6 +31,10 @@ global_dataset = None
 global_dataset_info = None
 global_args = None
 global_coco = None
+
+# Now the inputs are cleared, cd back to the original directory
+os.chdir(str(Path.cwd().parent.parent))
+print("Current working directory: ", os.getcwd())
 
 def worker_init(args):
     """Initializer for each worker process.
