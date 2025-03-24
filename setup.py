@@ -91,23 +91,27 @@ def setup_pose(root):
         os.system(f"conda run --live-stream -n {env_name} pip install timm==0.4.9 einops")
 
 
-# Setup for original PARSeq (STR)
-def setup_parseq(root):
-    env_name = cfg.str_env  # e.g., 'parseq2'
+# clone and install str
+# download the model
+def setup_str(root):
+    env_name  = cfg.str_env
     repo_name = "parseq"
-    src_url = "https://github.com/baudm/parseq.git"
-    rep_path = os.path.join(".", "str", "parseq")
+    src_url   = "https://github.com/baudm/parseq.git"
+    rep_path  = "./str"
     os.chdir(root)
-    if not os.path.exists(os.path.join("str")):
-        os.makedirs("str")
-    if not os.path.exists(rep_path):
-        os.system(f"git clone --recurse-submodules {src_url} {rep_path}")
-    os.chdir(rep_path)
-    if env_name not in get_conda_envs():
+
+    if not repo_name in os.listdir(rep_path):
+        # clone source repo
+        os.system(f"git clone --recurse-submodules {src_url} {os.path.join(rep_path, repo_name)}")
+
+    os.chdir(os.path.join(rep_path, repo_name))
+
+    if not env_name in get_conda_envs():
         make_conda_env(env_name, libs="python=3.9")
-        os.system("make torch-cu117")
+        os.system(f"make torch-cu117")
         os.system(f"conda run --live-stream -n {env_name} conda install --name {env_name} pip")
         os.system(f"conda run --live-stream -n {env_name} pip install -r requirements/core.cu117.txt -e .[train,test]")
+
     os.chdir(root)
 
 # Setup for CLIP4STR
