@@ -9,6 +9,9 @@ str_platform = 'cu113'
 reid_env = 'centroids'
 reid_script = 'centroid_reid.py'
 
+# New environment for CLIP4STR
+clip4str_env = 'clip4str'
+
 reid_home = 'reid/'
 
 
