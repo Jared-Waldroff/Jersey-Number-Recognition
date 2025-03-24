@@ -173,6 +173,9 @@ class CentralPipeline:
         self.PADDING = 5
         self.CONFIDENCE_THRESHOLD = 0.4
         
+        tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+        self.tracklets_to_process = tracks[:self.num_tracklets]
+        
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
         # Legible data pattern: {tracklet_number: [list of image numbers]}
@@ -572,10 +575,10 @@ class CentralPipeline:
                 stats["TP"] = 1
             elif true_value == '-1' and predicted_legible:
                 stats["FP"] = 1
-                self.logger.info(f"FP: {track}")
+                #self.logger.info(f"FP: {track}")
             elif true_value != '-1' and not predicted_legible:
                 stats["FN"] = 1
-                self.logger.info(f"FN: {track}")
+                #self.logger.info(f"FN: {track}")
 
             return stats
 
@@ -739,7 +742,7 @@ class CentralPipeline:
                     #self.logger.info("Cache file missing. Preprocessing cannot be skipped")
                     return False
 
-            self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
+            #self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
             return True
 
         return False  # If no use_cache, we never skip
@@ -756,126 +759,127 @@ class CentralPipeline:
                     run_combine=True,
                     run_eval=True):
         self.logger.info("Running the SoccerNet pipeline.")
-
-        # Determine which tracklets to process
-        if self.tracklets_to_process_override is None:
-            self.logger.info("No tracklets provided. Retrieving from input folder.")
-            tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
-            tracks = tracks[:self.num_tracklets]
-        else:
-            self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
-            tracks = self.tracklets_to_process_override
-            self.tracklets_to_process = tracks
-
-        final_processed_data = {}
-
-        # Loop over batches of tracklets
-        pbar = tqdm(range(0, len(tracks), self.tracklet_batch_size), leave=True, position=0)
         
-        self.logger.info(f"Tracklet batch size: {self.tracklet_batch_size}")
-        self.logger.info(f"Image batch size: {self.image_batch_size}")
-        self.logger.info(f"Number of workers: {self.num_workers}")
-        self.logger.info(f"Number of threads created: {self.num_workers * self.num_threads_multiplier}")
-        for batch_start in pbar:
-            batch_end = min(batch_start + self.tracklet_batch_size, len(tracks))
-            batch_tracklets = tracks[batch_start:batch_end]
-
-            # Update tqdm description dynamically with batch range
-            pbar.set_description(f"Processing Batch Tracklets ({batch_start}-{batch_end})")
-
-            # Find the index of the first tracklet that isn't cached
-            first_uncached_index = None
-            for i, tracklet in enumerate(batch_tracklets):
-                tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
-                if not self.skip_preprocessing(tracklet_dir):
-                    # Found a tracklet that needs processing
-                    first_uncached_index = i
-                    break
-
-            if first_uncached_index is None:
-                # All tracklets in this batch are cached
-                self.logger.info(f"All tracklets in {batch_start}-{batch_end} are cached. Skipping feature generation.")
-                continue
+        if generate_features or run_filter or run_legible:
+            # Determine which tracklets to process
+            if self.tracklets_to_process_override is None:
+                self.logger.info("No tracklets provided. Retrieving from input folder.")
+                tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+                tracks = tracks[:self.num_tracklets]
             else:
-                # Subset from the first uncached tracklet to the end of the batch
-                if first_uncached_index > 0:
-                    self.logger.info(f"Skipping first {first_uncached_index} cached tracklets in "
-                                    f"batch {batch_start}-{batch_end}. Processing the rest.")
-                batch_tracklets = batch_tracklets[first_uncached_index:]
+                self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
+                tracks = self.tracklets_to_process_override
+                self.tracklets_to_process = tracks
 
-            # Now we only generate features for what we need in this batch
-            # Phase 0: Generate feature data for the current batch
-            data_dict = self.data_preprocessor.generate_features(
-                self.input_data_path,
-                self.output_processed_data_path,
-                num_tracks=len(batch_tracklets),
-                tracks=batch_tracklets
-            )
+            final_processed_data = {}
 
-            # Set working subset for this batch
-            self.tracklets_to_process = list(data_dict.keys())
+            # Loop over batches of tracklets
+            pbar = tqdm(range(0, len(tracks), self.tracklet_batch_size), leave=True, position=0)
+            
+            self.logger.info(f"Tracklet batch size: {self.tracklet_batch_size}")
+            self.logger.info(f"Image batch size: {self.image_batch_size}")
+            self.logger.info(f"Number of workers: {self.num_workers}")
+            self.logger.info(f"Number of threads created: {self.num_workers * self.num_threads_multiplier}")
+            for batch_start in pbar:
+                batch_end = min(batch_start + self.tracklet_batch_size, len(tracks))
+                batch_tracklets = tracks[batch_start:batch_end]
 
-            # Initialize files that rely on self.tracklets_to_process
-            self.init_soccer_ball_filter_data_file()
-            #self.init_legibility_classifier_data_file()
+                # Update tqdm description dynamically with batch range
+                pbar.set_description(f"Processing Batch Tracklets ({batch_start}-{batch_end})")
 
-            # Phase 1: Process each tracklet in parallel for this batch
-            tasks = []
-            for tracklet in self.tracklets_to_process:
-                images = data_dict[tracklet]
-                args = (
-                    tracklet,
-                    images,
-                    self.output_processed_data_path,
-                    self.use_cache,
+                # Find the index of the first tracklet that isn't cached
+                first_uncached_index = None
+                for i, tracklet in enumerate(batch_tracklets):
+                    tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
+                    if not self.skip_preprocessing(tracklet_dir):
+                        # Found a tracklet that needs processing
+                        first_uncached_index = i
+                        break
+
+                if first_uncached_index is None:
+                    # All tracklets in this batch are cached
+                    self.logger.info(f"All tracklets in {batch_start}-{batch_end} are cached. Skipping feature generation.")
+                    continue
+                else:
+                    # Subset from the first uncached tracklet to the end of the batch
+                    if first_uncached_index > 0:
+                        self.logger.info(f"Skipping first {first_uncached_index} cached tracklets in "
+                                        f"batch {batch_start}-{batch_end}. Processing the rest.")
+                    batch_tracklets = batch_tracklets[first_uncached_index:]
+
+                # Now we only generate features for what we need in this batch
+                # Phase 0: Generate feature data for the current batch
+                data_dict = self.data_preprocessor.generate_features(
                     self.input_data_path,
-                    self.tracklets_to_process,
-                    self.common_processed_data_dir,
-                    run_soccer_ball_filter,
-                    generate_features,
-                    run_filter,
-                    run_legible,
-                    self.display_transformed_image_sample,
-                    self.suppress_logging,
-                    self.num_images_per_tracklet,
-                    self.image_batch_size
+                    self.output_processed_data_path,
+                    num_tracks=len(batch_tracklets),
+                    tracks=batch_tracklets
                 )
-                tasks.append(args)
 
-            # If no tasks remain after skipping, move on
-            if not tasks:
-                self.logger.info("Should not be here. No tasks to process.")
-                continue
+                # Set working subset for this batch
+                self.tracklets_to_process = list(data_dict.keys())
 
-            # RECOMMENDED MULTIPLIER: 3-5x number of workers.
-            # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
-            # you would do 6*3 or 6*5 as input to this ThreadPool
-            with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-                futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
+                # Initialize files that rely on self.tracklets_to_process
+                self.init_soccer_ball_filter_data_file()
+                #self.init_legibility_classifier_data_file()
 
-                pbar = tqdm(total=len(futures), 
-                            desc=f"Processing Batch Tracklets ({batch_start}-{batch_start + self.tracklet_batch_size})", 
-                            leave=True, position=0)  # Fixes flickering
+                # Phase 1: Process each tracklet in parallel for this batch
+                tasks = []
+                for tracklet in self.tracklets_to_process:
+                    images = data_dict[tracklet]
+                    args = (
+                        tracklet,
+                        images,
+                        self.output_processed_data_path,
+                        self.use_cache,
+                        self.input_data_path,
+                        self.tracklets_to_process,
+                        self.common_processed_data_dir,
+                        run_soccer_ball_filter,
+                        generate_features,
+                        run_filter,
+                        run_legible,
+                        self.display_transformed_image_sample,
+                        self.suppress_logging,
+                        self.num_images_per_tracklet,
+                        self.image_batch_size
+                    )
+                    tasks.append(args)
 
-                for future in as_completed(futures):
-                    tracklet_name = futures[future]  # Get tracklet name associated with this future
-                    if future.exception() is not None:
-                        # Log the worker exception BEFORE calling .result()
-                        self.logger.error(f"Worker crashed for tracklet {tracklet_name}: {future.exception()}", exc_info=True)
-                        continue
+                # If no tasks remain after skipping, move on
+                if not tasks:
+                    self.logger.info("Should not be here. No tasks to process.")
+                    continue
 
-                    try:
-                        result = future.result()  # Retrieve the successful result
-                        self.logger.info(f"Processed tracklet: {result}")
-                        # Merge into our overall dictionary
-                        final_processed_data[result] = result  # Adjust as needed
-                    except Exception as e:
-                        # Log unexpected exceptions
-                        self.logger.error(f"Unexpected error processing tracklet {tracklet_name}: {e}", exc_info=True)
-                    
-                    pbar.update(1)  # Ensure tqdm updates properly
+                # RECOMMENDED MULTIPLIER: 3-5x number of workers.
+                # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
+                # you would do 6*3 or 6*5 as input to this ThreadPool
+                with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+                    futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
-                pbar.close()
+                    pbar = tqdm(total=len(futures), 
+                                desc=f"Processing Batch Tracklets ({batch_start}-{batch_start + self.tracklet_batch_size})", 
+                                leave=True, position=0)  # Fixes flickering
+
+                    for future in as_completed(futures):
+                        tracklet_name = futures[future]  # Get tracklet name associated with this future
+                        if future.exception() is not None:
+                            # Log the worker exception BEFORE calling .result()
+                            self.logger.error(f"Worker crashed for tracklet {tracklet_name}: {future.exception()}", exc_info=True)
+                            continue
+
+                        try:
+                            result = future.result()  # Retrieve the successful result
+                            self.logger.info(f"Processed tracklet: {result}")
+                            # Merge into our overall dictionary
+                            final_processed_data[result] = result  # Adjust as needed
+                        except Exception as e:
+                            # Log unexpected exceptions
+                            self.logger.error(f"Unexpected error processing tracklet {tracklet_name}: {e}", exc_info=True)
+                        
+                        pbar.update(1)  # Ensure tqdm updates properly
+
+                    pbar.close()
 
         # Phase 2: Running the Models on Pre-Processed + Filtered Data sequentially
         if run_legible_eval:
