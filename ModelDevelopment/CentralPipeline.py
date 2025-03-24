@@ -471,9 +471,9 @@ class CentralPipeline:
         self.logger.info("Generate crops")
         crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
+        #self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
         self.set_legibility_results_data()
-        self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
+        #self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
         

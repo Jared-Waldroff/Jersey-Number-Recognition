@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from argparse import ArgumentParser
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 os.chdir(str(Path.cwd().parent.parent))
 
@@ -106,7 +106,7 @@ def main():
     # Step 2: Process remaining images
     # -------------------------
     new_results = []
-    for i, image_id in enumerate(remaining_img_keys):
+    for i, image_id in enumerate(tqdm(remaining_img_keys, desc="Processing images", position=0, leave=True)):
         image = coco.loadImgs(image_id)[0]
         image_name = os.path.join(args.img_root, image['file_name'])
         ann_ids = coco.getAnnIds(image_id)
