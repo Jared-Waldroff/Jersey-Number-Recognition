@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - override /model: vl4str
+  - override /charset: 94_full
+  - override /dataset: soccernet
+
+model:
+  img_size: [224, 224]  # [ height, width ]
+  max_label_length: 25
+  batch_size: 16  # Reduced to fit in memory
+  lr: 5e-5  # Lower learning rate for fine-tuning
+  weight_decay: 0.01
+  warmup_pct: 0.075
+  clip_pretrained: ${abs_root}/pretrained/clip/appleDFN5B-CLIP-ViT-H-14.bin
+  freeze_backbone: true
+
+trainer:
+  accumulate_grad_batches: 1
+  max_epochs: 20
+  val_check_interval: 500
+  gpus: 1
+
+# Start from pre-trained checkpoint
+ckpt_path: null
+pretrained: null
+swa: false
