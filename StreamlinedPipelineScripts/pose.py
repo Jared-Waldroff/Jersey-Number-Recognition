@@ -7,15 +7,16 @@ from argparse import ArgumentParser
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
-os.chdir(str(Path.cwd().parent.parent))
+os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/pose/ViTPose/')
 
-# Now CD into pose
-os.chdir('./pose/ViTPose/')
 print("Current working directory: ", os.getcwd())
 
 # Append ROOT to PATH
 # ROOT = './pose/ViTPose/'
 # sys.path.append(str(ROOT))
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Add the current working directory to the path
 sys.path.append(os.getcwd())

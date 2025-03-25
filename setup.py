@@ -36,7 +36,7 @@ def get_conda_envs():
 
 def setup_reid(root):
     env_name  = cfg.reid_env
-    repo_name = "centroids-reid"
+    repo_name = "CentroidsReidRepo"
     src_url   = "https://github.com/mikwieczorek/centroids-reid.git"
     rep_path  = "./reid"
 
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     setup_pose(root_dir)
     setup_reid(root_dir)
     download_models_common(root_dir)
-    setup_parseq(root_dir)
+    setup_str(root_dir)
     setup_clip4str(root_dir)
 
     #SoccerNet only
