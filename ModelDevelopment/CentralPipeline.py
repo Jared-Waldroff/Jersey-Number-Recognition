@@ -330,8 +330,15 @@ class CentralPipeline:
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
 
         self.logger.info("Detecting pose")
+        # Get direct path to Python in vitpose environment
+        vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "vitpose", "python.exe")
+
+        # Create environment with KMP_DUPLICATE_LIB_OK set to TRUE
+        env = os.environ.copy()
+        env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
         command = [
-            "conda", "run", "-n", config.pose_env, "python",
+            vitpose_python,  # Use direct path to Python executable instead of conda run
             f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
             f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
             f"{config.pose_home}/checkpoints/vitpose-h.pth",
@@ -509,6 +516,60 @@ class CentralPipeline:
             self.logger.error(e.stderr)   # Log stderr for debugging
 
         self.logger.info("Done predicting numbers")
+
+    def run_clip4str_model(self):
+        """
+        Run the CLIP4STR model for scene text recognition instead of the original parseq model.
+        This method follows a similar pattern to run_str_model but uses the CLIP4STR model.
+        """
+        self.logger.info("Predicting numbers using CLIP4STR model")
+        os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
+        print("Current working directory: ", os.getcwd())
+
+        # Path to the CLIP4STR model file
+        clip4str_model_path = os.path.join("data", "pre_trained_models", "str", "clip4str_huge_3e942729b1.pt")
+
+        # Try direct python executable path instead of conda run
+        try:
+            # Find the python executable in the clip4str environment
+            clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env,
+                                           "python.exe")
+
+            if not os.path.exists(clip4str_python):
+                self.logger.error(f"Python executable not found at: {clip4str_python}")
+                # Try falling back to parseq environment which should have most dependencies
+                clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.str_env,
+                                               "python.exe")
+                self.logger.info(f"Falling back to parseq environment: {clip4str_python}")
+
+            command = [
+                clip4str_python,  # Use direct path to Python executable
+                os.path.join("StreamlinedPipelineScripts", "clip4str.py"),
+                "pretrained=vl4str",
+                "--model_path", clip4str_model_path,
+                "--model_type", "vl4str",
+                f"--data_root={self.image_dir}",
+                "--batch_size=1",
+                "--inference",
+                "--result_file", self.str_result_file
+            ]
+
+            self.logger.info(f"Running command: {' '.join(command)}")
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+
+            # Log standard output and errors
+            self.logger.info(result.stdout)
+            if result.stderr:
+                self.logger.error(result.stderr)
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error running CLIP4STR model: {e}")
+            self.logger.info(e.stdout if e.stdout else "No stdout output")
+            self.logger.error(e.stderr if e.stderr else "No stderr output")
+        except Exception as e:
+            self.logger.error(f"Unexpected error in run_clip4str_model: {e}", exc_info=True)
+
+        self.logger.info("Done predicting numbers with CLIP4STR")
     
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
@@ -748,16 +809,17 @@ class CentralPipeline:
         return False  # If no use_cache, we never skip
         
     def run_soccernet(self,
-                    run_soccer_ball_filter=True,
-                    generate_features=True,
-                    run_filter=True,
-                    run_legible=True,
-                    run_legible_eval=True,
-                    run_pose=True,
-                    run_crops=True,
-                    run_str=True,
-                    run_combine=True,
-                    run_eval=True):
+                      run_soccer_ball_filter=False,
+                      generate_features=False,
+                      run_filter=False,
+                      run_legible=False,
+                      run_legible_eval=False,
+                      run_pose=False,
+                      run_crops=False,
+                      run_str=True,
+                      run_combine=True,
+                      run_eval=True,
+                      use_clip4str=True):
         self.logger.info("Running the SoccerNet pipeline.")
         
         if generate_features or run_filter or run_legible:
@@ -891,7 +953,12 @@ class CentralPipeline:
         if run_crops:
             self.run_crops_model()
         if run_str:
-            self.run_str_model()
+            if use_clip4str:
+                self.logger.info("Using CLIP4STR model for scene text recognition")
+                self.run_clip4str_model()  # Use our new method
+            else:
+                self.logger.info("Using original model for scene text recognition")
+                self.run_str_model()  # Use the original method
         if run_combine:
             self.combine_results()
         if run_eval:

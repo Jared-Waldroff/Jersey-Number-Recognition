@@ -193,5 +193,5 @@ class CustomCNN(nn.Module):
         v = self.fc(v)
         v = self.bn_final(v)
 
-        # To maintain the same interface as CTLModel from centroids-reid
+        # To maintain the same interface as CTLModel from CentroidsReidRepo
         return x, v
