@@ -520,54 +520,55 @@ class CentralPipeline:
     def run_clip4str_model(self):
         """
         Run the CLIP4STR model for scene text recognition instead of the original parseq model.
-        This method follows a similar pattern to run_str_model but uses the CLIP4STR model.
         """
         self.logger.info("Predicting numbers using CLIP4STR model")
         os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
         print("Current working directory: ", os.getcwd())
 
-        # Path to the CLIP4STR model file
-        clip4str_model_path = os.path.join("data", "pre_trained_models", "str", "clip4str_huge_3e942729b1.pt")
+        # Construct the path more reliably, handling potential Windows path issues
+        clip4str_model_path = os.path.join(os.getcwd(), "clip4str_huge_3e942729b1.pt")
 
-        # Try direct python executable path instead of conda run
-        try:
-            # Find the python executable in the clip4str environment
-            clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env,
-                                           "python.exe")
-
-            if not os.path.exists(clip4str_python):
-                self.logger.error(f"Python executable not found at: {clip4str_python}")
-                # Try falling back to parseq environment which should have most dependencies
-                clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.str_env,
-                                               "python.exe")
-                self.logger.info(f"Falling back to parseq environment: {clip4str_python}")
-
-            command = [
-                clip4str_python,  # Use direct path to Python executable
-                os.path.join("StreamlinedPipelineScripts", "clip4str.py"),
-                "pretrained=vl4str",
-                "--model_path", clip4str_model_path,
-                "--model_type", "vl4str",
-                f"--data_root={self.image_dir}",
-                "--batch_size=1",
-                "--inference",
-                "--result_file", self.str_result_file
+        # Check if the file exists at this location
+        if not os.path.exists(clip4str_model_path):
+            # Try alternate locations
+            alternate_paths = [
+                os.path.join(os.getcwd(), "data", "pre_trained_models", "str", "clip4str_huge_3e942729b1.pt"),
+                os.path.join(os.getcwd(), "models", "clip4str_huge_3e942729b1.pt")
             ]
 
-            self.logger.info(f"Running command: {' '.join(command)}")
+            for path in alternate_paths:
+                if os.path.exists(path):
+                    clip4str_model_path = path
+                    break
+
+        self.logger.info(f"Using CLIP4STR model at: {clip4str_model_path}")
+
+        if not os.path.exists(clip4str_model_path):
+            self.logger.error(f"CLIP4STR model not found at: {clip4str_model_path}")
+            self.logger.error("Please ensure the model file exists before running this function")
+            return
+
+        # Direct Python executable path
+        clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
+
+        command = [
+            clip4str_python,  # Direct Python path instead of conda run
+            os.path.join("StreamlinedPipelineScripts", "clip4str.py"),
+            clip4str_model_path,
+            f"--data_root={self.image_dir}",
+            "--batch_size=1",
+            "--inference",
+            "--result_file", self.str_result_file
+        ]
+
+        try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-
-            # Log standard output and errors
             self.logger.info(result.stdout)
-            if result.stderr:
-                self.logger.error(result.stderr)
-
+            self.logger.error(result.stderr)
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running CLIP4STR model: {e}")
-            self.logger.info(e.stdout if e.stdout else "No stdout output")
-            self.logger.error(e.stderr if e.stderr else "No stderr output")
-        except Exception as e:
-            self.logger.error(f"Unexpected error in run_clip4str_model: {e}", exc_info=True)
+            self.logger.info(e.stdout)
+            self.logger.error(e.stderr)
 
         self.logger.info("Done predicting numbers with CLIP4STR")
     
