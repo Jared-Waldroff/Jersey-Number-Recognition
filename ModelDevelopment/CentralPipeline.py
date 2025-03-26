@@ -368,31 +368,50 @@ class CentralPipeline:
         self.logger.info("Detecting pose")
 
         def worker(tracklet):
-            input_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json'])
-            output_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json'])
+            # Build absolute paths for the input and output JSON files for this tracklet
+            input_json = os.path.abspath(os.path.join(
+                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json']))
+            output_json = os.path.abspath(os.path.join(
+                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
+
+            # IMPORTANT: Verify these files exist before calling
+            if not os.path.exists(input_json):
+                self.logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
+            # (It may be okay if it does not exist yet, since pose.py will generate it.)
+            
+            # Build absolute path to the pose.py script
+            pose_script_path = os.path.abspath(os.path.join(
+                Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py"))
+            
+            # Likewise, get absolute paths for the config and checkpoint files
+            pose_config_path = os.path.abspath(os.path.join(Path.cwd().parent.parent, config.pose_home, "configs", "body", "2d_kpt_sview_rgb_img", "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
+            pose_checkpoint_path = os.path.abspath(os.path.join(Path.cwd().parent.parent, config.pose_home, "checkpoints", "vitpose-h.pth"))
             
             command = [
                 "conda", "run", "-n", config.pose_env, "python", "-u",
-                f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-                f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                f"{config.pose_home}/checkpoints/vitpose-h.pth",
-                "--img-root", "/",
+                pose_script_path,
+                pose_config_path,
+                pose_checkpoint_path,
+                "--img-root", "/",  # This remains unchanged, assuming root is '/'
                 "--json-file", input_json,
                 "--out-json", output_json
             ]
-
+            
+            # Log the command for debugging purposes
+            self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
+            
             try:
                 process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    bufsize=1
+                    bufsize=1  # Line-buffered
                 )
+                # Stream output in real time
                 for line in iter(process.stdout.readline, ''):
                     if line:
                         self.logger.info(f"[{tracklet}] {line.strip()}")
-
                 process.stdout.close()
                 return_code = process.wait()
                 if return_code != 0:
@@ -401,12 +420,15 @@ class CentralPipeline:
                 self.logger.error(f"[{tracklet}] Pose estimation failed: {e}")
                 self.logger.info(e.stdout)
                 self.logger.error(e.stderr)
-        
-        # Run in parallel with progress bar
+
+        # Ensure that self.legible_tracklets_list is a list of tracklet identifiers
+        futures = []
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            futures = [executor.submit(worker, legible_tracklet) for legible_tracklet in self.legible_tracklets_list]
+            for tracklet in self.legible_tracklets_list:
+                futures.append(executor.submit(worker, tracklet))
+            
             for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
-                pass  # tqdm will update progress
+                pass  # The tqdm loop simply updates progress
 
         self.logger.info("Done detecting pose")
         

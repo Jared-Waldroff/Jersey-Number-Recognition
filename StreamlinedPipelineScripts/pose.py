@@ -14,13 +14,13 @@ import threading
 GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 os.chdir(str(Path.cwd().parent.parent))
-#print(f"Current working directory: {os.getcwd()}", flush=True)
+#print(f"(pre-logger) Current working directory: {os.getcwd()}", flush=True)
 sys.path.append(os.getcwd())
 from DataProcessing.Logger import CustomLogger
 
 # Now CD into pose
 os.chdir('./pose/ViTPose/')
-#print(f"Current working directory: {os.getcwd()}", flush=True)
+#print(f"(prextcoco) Current working directory: {os.getcwd()}", flush=True)
 
 # Append ROOT to PATH
 # ROOT = './pose/ViTPose/'
@@ -35,8 +35,8 @@ from mmpose.apis import (inference_top_down_pose_model, init_pose_model,
 from mmpose.datasets import DatasetInfo
 
 # Now the inputs are cleared, cd back to the original directory
-os.chdir(str(Path.cwd().parent.parent))
-#print(f"Current working directory: {os.getcwd()}", flush=True)
+#os.chdir(str(Path.cwd().parent.parent))
+#print(f"(premain) Current working directory: {os.getcwd()}", flush=True)
 
 def main():
     """Visualize the demo images.
