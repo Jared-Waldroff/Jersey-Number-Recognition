@@ -14,7 +14,6 @@ import math
 # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
 GPU_SEMAPHORE = threading.Semaphore(value=1)
 
-<<<<<<< HEAD
 os.chdir(str(Path.cwd().parent.parent))
 #print(f"(pre-logger) Current working directory: {os.getcwd()}", flush=True)
 sys.path.append(os.getcwd())
@@ -22,19 +21,17 @@ from DataProcessing.Logger import CustomLogger
 
 # Now CD into pose
 os.chdir('./pose/ViTPose/')
-#print(f"(prextcoco) Current working directory: {os.getcwd()}", flush=True)
-=======
-os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/pose/ViTPose/')
+print(f"(prextcoco) Current working directory: {os.getcwd()}", flush=True)
+#os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/pose/ViTPose/')
 
 print("Current working directory: ", os.getcwd())
->>>>>>> 2a3b9dc9506dcf36ff72c1a4bf339acb3ff4a6ba
 
 # Append ROOT to PATH
 # ROOT = './pose/ViTPose/'
 # sys.path.append(str(ROOT))
 
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+#import os
+#os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Add the current working directory to the path
 sys.path.append(os.getcwd())
@@ -109,7 +106,7 @@ def main():
         results = []
 
         for b in tqdm(range(num_batches), desc="Processing batches", leave=True):
-            batch_keys = img_keys[b * batch_size : (b + 1) * batch_size]
+            batch_keys = img_keys[b * args.image_batch_size : (b + 1) * args.image_batch_size]
             # Process each image in this batch.
             for i, image_id in enumerate(batch_keys):
                 try:
@@ -147,8 +144,8 @@ def main():
                     # Visualization: if an output image root is specified, write the vis result.
                     if args.out_img_root:
                         os.makedirs(args.out_img_root, exist_ok=True)
-                        # Use the global image index computed as b * batch_size + i.
-                        out_file = os.path.join(args.out_img_root, f'vis_{b * batch_size + i}.jpg')
+                        # Use the global image index computed as b * args.image_batch_size + i.
+                        out_file = os.path.join(args.out_img_root, f'vis_{b * args.image_batch_size + i}.jpg')
                     else:
                         out_file = None
 
@@ -166,7 +163,7 @@ def main():
                     )
 
                 except Exception as img_error:
-                    logger.error(f"Failed to process image {b * batch_size + i} ({image['file_name']}): {img_error}")
+                    logger.error(f"Failed to process image {b * args.image_batch_size + i} ({image['file_name']}): {img_error}")
 
         if args.out_json:
             try:
