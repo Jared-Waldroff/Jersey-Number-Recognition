@@ -14,7 +14,7 @@ import threading
 GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 os.chdir(str(Path.cwd().parent.parent))
-print(f"Current working directory: {os.getcwd()}", flush=True)
+#print(f"Current working directory: {os.getcwd()}", flush=True)
 sys.path.append(os.getcwd())
 from DataProcessing.Logger import CustomLogger
 

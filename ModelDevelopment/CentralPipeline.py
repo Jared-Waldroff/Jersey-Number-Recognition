@@ -402,13 +402,13 @@ class CentralPipeline:
                 self.logger.info(e.stdout)
                 self.logger.error(e.stderr)
         
-        # # Run in parallel with progress bar
-        # with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-        #     futures = [executor.submit(worker, legible_tracklet) for legible_tracklet in self.legible_tracklets_list]
-        #     for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
-        #         pass  # tqdm will update progress
+        # Run in parallel with progress bar
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            futures = [executor.submit(worker, legible_tracklet) for legible_tracklet in self.legible_tracklets_list]
+            for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
+                pass  # tqdm will update progress
 
-        # self.logger.info("Done detecting pose")
+        self.logger.info("Done detecting pose")
         
     # get confidence-filtered points from pose results
     def get_points(self, pose):
