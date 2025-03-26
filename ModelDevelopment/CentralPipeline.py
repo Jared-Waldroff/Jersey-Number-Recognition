@@ -368,7 +368,7 @@ class CentralPipeline:
 
         self.logger.info("Completed generating JSON for pose")
                 
-    def run_pose_estimation_model(self, series=True, pyscrippt=False):
+    def run_pose_estimation_model(self, series=False, pyscrippt=False):
         self.logger.info("Detecting pose")
 
         def worker(tracklet):
@@ -455,9 +455,9 @@ class CentralPipeline:
         else:
             # Run in parallel
             futures = []
-            NUM_THREADS_FOR_POSE = 2
-            self.logger.info(f"Running pose estimation with multithreading with {NUM_THREADS_FOR_POSE} threads")
-            with ThreadPoolExecutor(max_workers=NUM_THREADS_FOR_POSE) as executor:
+            # Heavy duty process so do not multiply workers with the thread multiplier
+            self.logger.info(f"Running pose estimation with multithreading with {self.num_workers} threads")
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(worker, tracklet))
 
