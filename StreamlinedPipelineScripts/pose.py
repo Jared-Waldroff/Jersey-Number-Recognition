@@ -14,6 +14,7 @@ import math
 # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
 GPU_SEMAPHORE = threading.Semaphore(value=1)
 
+<<<<<<< HEAD
 os.chdir(str(Path.cwd().parent.parent))
 #print(f"(pre-logger) Current working directory: {os.getcwd()}", flush=True)
 sys.path.append(os.getcwd())
@@ -22,10 +23,18 @@ from DataProcessing.Logger import CustomLogger
 # Now CD into pose
 os.chdir('./pose/ViTPose/')
 #print(f"(prextcoco) Current working directory: {os.getcwd()}", flush=True)
+=======
+os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/pose/ViTPose/')
+
+print("Current working directory: ", os.getcwd())
+>>>>>>> 2a3b9dc9506dcf36ff72c1a4bf339acb3ff4a6ba
 
 # Append ROOT to PATH
 # ROOT = './pose/ViTPose/'
 # sys.path.append(str(ROOT))
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Add the current working directory to the path
 sys.path.append(os.getcwd())
