@@ -221,3 +221,132 @@ While the theoretical understanding of the original ResNet paper was straightfor
 - Mukaan & Jeremy will be working to implement a new ResNet model to enhance the number classification step.
 - Jared & Colin will be working on data augmentation and implementing the new STR model enhanced with a Mixture of Experts and Retrieval Augmented Classification combination approach.
 - Mahmoud & Aadil will be working on implementing ConvNet into the classification and monitoring the experiment setup an execution to ensure proper training, testing and evaluation is happening.
+
+
+## Meeting Record: March 20, 2025
+### Meeting Details
+- **Date**: March 20, 2025
+- **Location**: Discord
+- **Attendees**: All team members
+
+### Technical Discussion
+Status updates from all teams:
+
+#### ResNet Team (Muskaan, Jeremy):
+- Completed baseline ResNet network training and testing
+- Planning implementation of two optimization strategies
+- Next steps include training and testing optimized models
+
+#### STR/Pipeline Team (Colin, Jared):
+
+**Colin's Progress:**
+- Created a heavily optimized and parallelized pipeline with approximately 4x speed improvement
+- Completed and merged new pipeline to main branch
+- New pipeline fully functional and integrated
+- Implemented a modular approach allowing faster iteration on ideas
+- Added extensive logging functionality to improve debugging and analysis
+- Implemented caching for phase 1 data pre-processing (allowing pause/resume functionality)
+- Conducted memory optimization and hyperparameter tuning for parallel processing
+
+
+**Jared's Progress:**
+- Successfully implemented new STR model, currently in fine-tuning phase
+- Demonstrated significantly improved processing speed
+
+### Pipeline Performance Statistics:
+- 4x improvement in processing speed over original pipeline
+- Single tracklet processing time: ~30 seconds end-to-end, 2 minutes for study purposes
+- Added key alignment for final results evaluation
+- Enhanced modular architecture for easier improvement integration
+- Processing can be paused and resumed thanks to caching implementation
+- Optimized parallel processing to prevent memory overload (32 tracklets per batch)
+- Detailed logging and visualization outputs for debugging and analysis
+
+### Action Items
+| Task | Assignee | Due Date | Status |
+|------|----------|----------|---------|
+| Finalize ResNet optimizations | Muskaan, Jeremy | March 23, 2025 | In Progress |
+| Complete STR fine-tuning | Jared | March 23, 2025 | In Progress |
+| Implement data augmentation enhancements | Colin | March 23, 2025 | In Progress |
+| Transformer implementation update | Aadil, Mahmoud | March 23, 2025 | Status Unknown |
+
+## Meeting Record: March 23, 2025
+### Meeting Details
+- **Date**: March 23, 2025
+- **Time**: 3:00 PM
+- **Location**: Discord Call
+- **Attendees**: All team members
+
+### Technical Discussion
+1. Final Integration Planning
+   - Review of completed components
+   - Discussion of remaining tasks
+   - Timeline for final report completion
+   - Agreement for all teams to migrate to Colin's new pipeline for remaining work
+
+2. Team Progress Updates
+
+#### ResNet Team (Muskaan, Jeremy):
+- Successfully completed and tested both squeeze and excitation optimization and feature pyramid optimization
+- Models trained and tested with implementation complete
+- Results ready for final integration and reporting
+
+#### STR/Pipeline Team (Colin, Jared):
+
+**Colin's Progress:**
+- Successfully implemented caching for phase 1 data pre-processing
+- Completed memory optimization and parallel processing enhancements
+- Implemented batch processing (32 tracklets) to prevent memory overload
+- Pipeline now able to process all tracklets without overloading
+- Identified specific tracklets where legibility classifier fails
+- Working on improving end results by ~1% without changing the STR
+- Created "common_data" directory to prevent race conditions during parallel processing
+- Implemented multi-threaded processing (spawning 18 threads)
+
+**Jared's Progress:**
+- New STR model implementation completed and in final tuning stages
+- New pipeline fully functional and merged to main branch
+- Backward compatibility maintained for all existing code
+- Demonstrated significantly improved processing speed
+
+#### Transformer Team Update (Aadil, Mahmoud):
+- Status update pending
+
+### Project Completion Planning
+- Final report structure and requirements discussed
+- Results compilation and evaluation strategy planned
+- Task allocation for remaining work
+- Consensus to utilize Colin's optimized pipeline for all remaining experiments and evaluations
+- Discussion of migration strategy for teams still using the original pipeline
+- Key deadlines established:
+  - Slide deck due: March 31, 2025
+  - Project demo presentation: April 3, 2025
+  - Final report submission deadline: April 4, 2025
+
+### Action Items
+| Task | Assignee | Due Date | Status |
+|------|----------|----------|---------|
+| Complete ResNet optimization implementation | Muskaan, Jeremy | March 27, 2025 | Completed |
+| Finalize STR model tuning | Jared | March 27, 2025 | In Progress |
+| Integrate data augmentation | Colin | March 27, 2025 | In Progress |
+| Complete transformer implementation | Aadil, Mahmoud | March 27, 2025 | Status Unknown |
+| Begin drafting final report | All members | March 27, 2025 | Not Started |
+| Complete slide deck for presentation | All members | March 31, 2025 |In Progress |
+| Prepare project demo | All members | April 3, 2025 | In Progress  |
+| Submit final report | All members | April 4, 2025 | Not Started |
+
+## Technical Progress Summary
+1. Pipeline Optimization:
+   - 4x performance improvement achieved
+   - Full dataset processing time reduced to 7.48 hours
+   - Modular architecture implemented
+   - Enhanced logging and debugging capabilities
+   - Memory optimization and parallel processing implemented (18 threads)
+   - Pause/resume functionality via caching implementation
+   - Batch processing (32 tracklets) to prevent memory overload
+
+2. Model Implementation:
+   - ResNet network with squeeze and excitation and feature pyramid optimizations completed
+   - New STR model implemented and fine-tuned
+   - Legibility classifier improvement areas identified
+   - Testing and evaluation completed for primary components
