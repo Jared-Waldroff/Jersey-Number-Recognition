@@ -457,6 +457,9 @@ class CentralPipeline:
             futures = []
             # Heavy duty process so do not multiply workers with the thread multiplier
             self.logger.info(f"Running pose estimation with multithreading with {self.num_workers} threads")
+            if self.num_workers > 2:
+                self.logger.warning("Using a high number of workers for pose estimation may cause GPU memory issues")
+                self.logger.warning("Consider reducing the number of workers or number of images per batch for safety")
             with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(worker, tracklet))
