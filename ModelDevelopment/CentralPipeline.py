@@ -210,7 +210,7 @@ class CentralPipeline:
                 with open(soccer_ball_list_path, "w") as outfile:
                     json.dump({'ball_tracks': []}, outfile)
                 
-    def set_legibility_results_data(self):
+    def aggregate_legibility_results_data(self):
         global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
         global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
 
@@ -260,6 +260,9 @@ class CentralPipeline:
         self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
         
+    def aggregate_pose(self):
+        pass
+        
     def set_ball_tracks(self):
         global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
 
@@ -290,69 +293,122 @@ class CentralPipeline:
         self.logger.info(f"Saved global ball tracks to: {global_ball_tracks_path}")
                 
     def init_json_for_pose_estimator(self):
-        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
-        
-        # IMPORTANT: Always generate the pose input json
-        # REASON: If we have a cache from running on 50 tracklets and we want to do the remainder, we should use that!
-        # input json needs to be populated with again so we know what to run pose on
-        
+        """
+        Generate pose input JSON files for each tracklet. This method aggregates
+        legibility results and then, for each tracklet, writes a JSON file (stored
+        in that tracklet's processed directory) that lists the full paths of the images.
+        """
         self.logger.info("Generating json for pose")
-        self.set_legibility_results_data()
-        self.logger.info("Done generating json for pose")
+        self.aggregate_legibility_results_data()
         
-        #print(f"DEBUG: self.loaded_legible_results: {self.loaded_legible_results}")
-        #print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
+        # Need to perform a set difference because loaded_legible_results.keys() is just all tracklets, but array will be empty
+        # loaded_illegible_results.keys() is only the illegible ones
+        #print(self.loaded_legible_results.keys())
+        #print(self.loaded_illegible_results["illegible"])
+        self.legible_tracklets_list = self.loaded_legible_results.keys() - self.loaded_illegible_results["illegible"]
+        #print(f"Legible tracklets: {self.legible_tracklets_list}")
         
-        all_files = []
-        #print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
-        if not self.loaded_legible_results is None:
-            #print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
-            for key in self.loaded_legible_results.keys():
-                #print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
-                for entry in self.loaded_legible_results[key]:
-                    all_files.append(os.path.join(os.getcwd(), entry))
-        else:
-            for tr in self.tracklets_to_process: # Only run this for the subset of the tracklet universe
-                track_dir = os.path.join(self.input_data_path, tr)
-                imgs = os.listdir(track_dir)
-                
-                # Subset the images to only be up to
-                imgs = imgs[:self.num_image_samples]
-                for img in imgs:
-                    all_files.append(os.path.join(track_dir, img))
+        num_messages = 0
 
-        #print(f"DEBUG: all_files: {all_files}")
-        #print(f"DEBUG: output_json: {output_json}")
-        helpers.generate_json(all_files, output_json)
+        def worker_from_loaded(key, entries):
+            nonlocal num_messages
+            # Compute output path for this tracklet
+            output_json = os.path.join(self.output_processed_data_path, key, config.dataset['SoccerNet']['pose_input_json'])
+            
+            if self.use_cache and os.path.exists(output_json):
+                num_messages += 1
+                if num_messages == 1:
+                    self.logger.info("Used cached data for pose JSON")
+                return
+            
+            # Build full paths for each image entry
+            images = [os.path.join(os.getcwd(), entry) for entry in entries]
+            # Generate the JSON for this tracklet
+            helpers.generate_json(images, output_json)
+
+        def worker_from_dir(tracklet):
+            nonlocal num_messages
+            # For tracklets not in loaded_legible_results, we read images from the input directory.
+            output_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json'])
+            
+            if self.use_cache and os.path.exists(output_json):
+                num_messages += 1
+                if num_messages == 1:
+                    self.logger.info("Used cached data for pose JSON")
+                return
+            
+            track_dir = os.path.join(self.input_data_path, tracklet)
+            imgs = os.listdir(track_dir)
+            imgs = imgs[:self.num_image_samples]  # Subset to desired number of images
+            # Build full paths; assuming you want the absolute path of each image
+            images = [os.path.join(os.getcwd(), track_dir, img) for img in imgs]
+            helpers.generate_json(images, output_json)
+
+        futures = []
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            if self.loaded_legible_results is not None:
+                # Process each tracklet from the loaded legible results
+                for key, entries in self.loaded_legible_results.items():
+                    futures.append(executor.submit(worker_from_loaded, key, entries))
+            else:
+                # Process each tracklet from tracklets_to_process by reading its directory.
+                for tr in self.tracklets_to_process:
+                    futures.append(executor.submit(worker_from_dir, tr))
+            
+            # Use tqdm to display progress over all futures
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating pose JSON"):
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet for pose json: {e}")
+
+        self.logger.info("Completed generating JSON for pose")
                 
     def run_pose_estimation_model(self):
-        input_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
-        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
-
         self.logger.info("Detecting pose")
-        command = [
-            "conda", "run", "-n", config.pose_env, "python",
-            f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-            f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-            f"{config.pose_home}/checkpoints/vitpose-h.pth",
-            "--img-root", "/",
-            "--json-file", input_json,
-            "--out-json", output_json
-        ]
 
-        if self.use_cache:
-            command.append("--use_cache")
+        def worker(tracklet):
+            input_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json'])
+            output_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json'])
+            
+            command = [
+                "conda", "run", "-n", config.pose_env, "python", "-u",
+                f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
+                f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+                f"{config.pose_home}/checkpoints/vitpose-h.pth",
+                "--img-root", "/",
+                "--json-file", input_json,
+                "--out-json", output_json
+            ]
 
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
-            self.logger.info(result.stdout)  # Log standard output
-            self.logger.error(result.stderr)  # Log errors (if any)
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running pose estimation: {e}")
-            self.logger.info(e.stdout)  # Log stdout even in failure
-            self.logger.error(e.stderr)  # Log stderr for debugging
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        self.logger.info(f"[{tracklet}] {line.strip()}")
 
-        self.logger.info("Done detecting pose")
+                process.stdout.close()
+                return_code = process.wait()
+                if return_code != 0:
+                    self.logger.error(f"[{tracklet}] Process returned non-zero exit code: {return_code}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"[{tracklet}] Pose estimation failed: {e}")
+                self.logger.info(e.stdout)
+                self.logger.error(e.stderr)
+        
+        # # Run in parallel with progress bar
+        # with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+        #     futures = [executor.submit(worker, legible_tracklet) for legible_tracklet in self.legible_tracklets_list]
+        #     for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
+        #         pass  # tqdm will update progress
+
+        # self.logger.info("Done detecting pose")
         
     # get confidence-filtered points from pose results
     def get_points(self, pose):
@@ -449,7 +505,7 @@ class CentralPipeline:
         total_misses = 0
 
         # Parallel processing.
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
             futures = [
                 executor.submit(self.process_crop, entry, all_legible, crops_destination_dir)
                 for entry in all_poses
@@ -475,7 +531,7 @@ class CentralPipeline:
         crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
         #self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
-        self.set_legibility_results_data()
+        self.aggregate_legibility_results_data()
         #self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
@@ -583,9 +639,8 @@ class CentralPipeline:
             return stats
 
         # Use ThreadPoolExecutor to run the worker for each track in parallel.
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         futures = []
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
             for track in self.tracklets_to_process:
                 futures.append(executor.submit(worker, track))
 
