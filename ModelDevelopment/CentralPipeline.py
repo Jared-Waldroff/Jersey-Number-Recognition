@@ -306,6 +306,10 @@ class CentralPipeline:
         #print(self.loaded_legible_results.keys())
         #print(self.loaded_illegible_results["illegible"])
         self.legible_tracklets_list = self.loaded_legible_results.keys() - self.loaded_illegible_results["illegible"]
+        
+        # Sort the self.legible_tracklets_list
+        self.legible_tracklets_list = sorted(self.legible_tracklets_list)
+        
         #print(f"Legible tracklets: {self.legible_tracklets_list}")
         
         num_messages = 0
@@ -364,7 +368,7 @@ class CentralPipeline:
 
         self.logger.info("Completed generating JSON for pose")
                 
-    def run_pose_estimation_model(self):
+    def run_pose_estimation_model(self, series=True):
         self.logger.info("Detecting pose")
 
         def worker(tracklet):
@@ -374,41 +378,44 @@ class CentralPipeline:
             output_json = os.path.abspath(os.path.join(
                 self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
 
-            # IMPORTANT: Verify these files exist before calling
             if not os.path.exists(input_json):
                 self.logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
-            # (It may be okay if it does not exist yet, since pose.py will generate it.)
-            
+
             # Build absolute path to the pose.py script
             pose_script_path = os.path.abspath(os.path.join(
                 Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py"))
-            
-            # Likewise, get absolute paths for the config and checkpoint files
-            pose_config_path = os.path.abspath(os.path.join(Path.cwd().parent.parent, config.pose_home, "configs", "body", "2d_kpt_sview_rgb_img", "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
-            pose_checkpoint_path = os.path.abspath(os.path.join(Path.cwd().parent.parent, config.pose_home, "checkpoints", "vitpose-h.pth"))
-            
+
+            # Config and checkpoint
+            pose_config_path = os.path.abspath(os.path.join(
+                Path.cwd().parent.parent, config.pose_home, "configs", "body", "2d_kpt_sview_rgb_img",
+                "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
+            pose_checkpoint_path = os.path.abspath(os.path.join(
+                Path.cwd().parent.parent, config.pose_home, "checkpoints", "vitpose-h.pth"))
+
             command = [
                 "conda", "run", "-n", config.pose_env, "python", "-u",
                 pose_script_path,
                 pose_config_path,
                 pose_checkpoint_path,
-                "--img-root", "/",  # This remains unchanged, assuming root is '/'
+                "--img-root", "/",
                 "--json-file", input_json,
-                "--out-json", output_json
+                "--out-json", output_json,
+                "--image-batch-size", str(self.image_batch_size)
             ]
             
-            # Log the command for debugging purposes
-            self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
-            
+            if self.use_cache and os.path.exists(output_json):
+                return
+
+            #self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
+
             try:
                 process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    bufsize=1  # Line-buffered
+                    bufsize=1
                 )
-                # Stream output in real time
                 for line in iter(process.stdout.readline, ''):
                     if line:
                         self.logger.info(f"[{tracklet}] {line.strip()}")
@@ -421,14 +428,22 @@ class CentralPipeline:
                 self.logger.info(e.stdout)
                 self.logger.error(e.stderr)
 
-        # Ensure that self.legible_tracklets_list is a list of tracklet identifiers
-        futures = []
-        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            for tracklet in self.legible_tracklets_list:
-                futures.append(executor.submit(worker, tracklet))
-            
-            for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
-                pass  # The tqdm loop simply updates progress
+        if series:
+            # Run in series (safe for GPU memory)
+            self.logger.info("Running pose estimation in series")
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Running pose estimation (series)", leave=True):
+                worker(tracklet)
+        else:
+            # Run in parallel
+            futures = []
+            NUM_THREADS_FOR_POSE = 2
+            self.logger.info(f"Running pose estimation with multithreading with {NUM_THREADS_FOR_POSE} threads")
+            with ThreadPoolExecutor(max_workers=NUM_THREADS_FOR_POSE) as executor:
+                for tracklet in self.legible_tracklets_list:
+                    futures.append(executor.submit(worker, tracklet))
+
+                for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
+                    pass  # tqdm progress
 
         self.logger.info("Done detecting pose")
         
