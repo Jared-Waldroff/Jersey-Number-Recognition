@@ -1,3 +1,4 @@
+import sys
 from enum import Enum
 from pathlib import Path
 import time
@@ -25,6 +26,7 @@ from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformatio
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
 import helpers
+from StreamlinedPipelineScripts import clip4str as clip4str_module
 
 def process_tracklet_worker(args):
     """
@@ -519,56 +521,46 @@ class CentralPipeline:
 
     def run_clip4str_model(self):
         """
-        Run the CLIP4STR model for scene text recognition instead of the original parseq model.
+        Run the CLIP4STR model for scene text recognition.
+        Uses the clip4str.py module to handle the processing.
         """
         self.logger.info("Predicting numbers using CLIP4STR model")
-        os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
+        base_dir = str(Path.cwd().parent.parent)  # Get base project directory
+        os.chdir(base_dir)  # ensure correct working directory
         print("Current working directory: ", os.getcwd())
 
-        # Construct the path more reliably, handling potential Windows path issues
-        clip4str_model_path = os.path.join(os.getcwd(), "clip4str_huge_3e942729b1.pt")
+        # Import the clip4str module
+        sys.path.append(os.path.join(base_dir, "StreamlinedPipelineScripts"))
 
-        # Check if the file exists at this location
-        if not os.path.exists(clip4str_model_path):
-            # Try alternate locations
-            alternate_paths = [
-                os.path.join(os.getcwd(), "data", "pre_trained_models", "str", "clip4str_huge_3e942729b1.pt"),
-                os.path.join(os.getcwd(), "models", "clip4str_huge_3e942729b1.pt")
-            ]
+        # Set paths
+        clip4str_dir = os.path.join(base_dir, "str", "CLIP4STR")
+        model_path = os.path.join(clip4str_dir, "pretrained", "clip", "clip4str_huge_3e942729b1.pt")
+        clip_pretrained = os.path.join(clip4str_dir, "pretrained", "clip", "appleDFN5B-CLIP-ViT-H-14.bin")
+        read_script_path = os.path.join(clip4str_dir, "read.py")
 
-            for path in alternate_paths:
-                if os.path.exists(path):
-                    clip4str_model_path = path
-                    break
+        # Path to Python executable
+        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
 
-        self.logger.info(f"Using CLIP4STR model at: {clip4str_model_path}")
+        # Set environment variables
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-        if not os.path.exists(clip4str_model_path):
-            self.logger.error(f"CLIP4STR model not found at: {clip4str_model_path}")
-            self.logger.error("Please ensure the model file exists before running this function")
-            return
+        # Path to images directory and result file
+        crops_dir = os.path.join(self.image_dir, 'imgs')
+        result_file = self.str_result_file
 
-        # Direct Python executable path
-        clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
-
-        command = [
-            clip4str_python,  # Direct Python path instead of conda run
-            os.path.join("StreamlinedPipelineScripts", "clip4str.py"),
-            clip4str_model_path,
-            f"--data_root={self.image_dir}",
-            "--batch_size=1",
-            "--inference",
-            "--result_file", self.str_result_file
-        ]
-
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
-            self.logger.info(result.stdout)
-            self.logger.error(result.stderr)
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running CLIP4STR model: {e}")
-            self.logger.info(e.stdout)
-            self.logger.error(e.stderr)
+        # Run CLIP4STR inference using the module
+        success = clip4str_module.run_clip4str_inference(
+            python_path=python_exe,
+            read_script_path=read_script_path,
+            model_path=model_path,
+            clip_pretrained_path=clip_pretrained,
+            images_dir=crops_dir,
+            result_file=result_file,
+            logger=self.logger,
+            env=env
+        )
 
         self.logger.info("Done predicting numbers with CLIP4STR")
     
