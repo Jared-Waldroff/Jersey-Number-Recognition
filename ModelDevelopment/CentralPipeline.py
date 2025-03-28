@@ -26,12 +26,12 @@ from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformatio
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
 import helpers
-from StreamlinedPipelineScripts import clip4str as clip4str_module
+
 
 def process_tracklet_worker(args):
     """
     Worker function to process a single tracklet.
-    
+
     Args:
         args (tuple): A tuple of parameters:
             - tracklet (str): Tracklet identifier.
@@ -47,12 +47,12 @@ def process_tracklet_worker(args):
             - run_legible (bool): Whether to run legibility stage.
             - display_transformed_image_sample (bool): Whether to display transformed samples.
             - suppress_logging (bool): Whether to suppress logging.
-    
+
     Returns:
         str: The tracklet identifier after processing.
     """
     logger = CustomLogger().get_logger()
-    
+
     try:
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
@@ -100,25 +100,26 @@ def process_tracklet_worker(args):
         logger.error("Exception in process_tracklet_worker", exc_info=True)
         raise
 
+
 class CentralPipeline:
     def __init__(self,
-                input_data_path: DataPaths,
-                gt_data_path: DataPaths,
-                output_processed_data_path: DataPaths,
-                common_processed_data_dir: DataPaths,
-                num_workers: int=8,
-                single_image_pipeline: bool=True,
-                display_transformed_image_sample: bool=False,
-                num_image_samples: int=1,
-                use_cache: bool=True,
-                suppress_logging: bool=False,
-                num_tracklets: int=None,
-                num_images_per_tracklet: int=None,
-                tracklet_batch_size = 32,
-                image_batch_size: int=200,
-                num_threads_multiplier: int=3,
-                tracklets_to_process_override: list=None,
-                ):
+                 input_data_path: DataPaths,
+                 gt_data_path: DataPaths,
+                 output_processed_data_path: DataPaths,
+                 common_processed_data_dir: DataPaths,
+                 num_workers: int = 8,
+                 single_image_pipeline: bool = True,
+                 display_transformed_image_sample: bool = False,
+                 num_image_samples: int = 1,
+                 use_cache: bool = True,
+                 suppress_logging: bool = False,
+                 num_tracklets: int = None,
+                 num_images_per_tracklet: int = None,
+                 tracklet_batch_size=32,
+                 image_batch_size: int = 200,
+                 num_threads_multiplier: int = 3,
+                 tracklets_to_process_override: list = None,
+                 ):
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
@@ -137,87 +138,93 @@ class CentralPipeline:
         self.image_batch_size = image_batch_size
         self.num_threads_multiplier = num_threads_multiplier
         self.tracklets_to_process_override = tracklets_to_process_override
-        
+
         self.loaded_ball_tracks = None
         self.analysis_results = None
-        
+
         self.data_preprocessor = DataPreProcessing(
-        display_transformed_image_sample=self.display_transformed_image_sample,
-        num_image_samples=self.num_image_samples,
-        suppress_logging=self.suppress_logging
+            display_transformed_image_sample=self.display_transformed_image_sample,
+            num_image_samples=self.num_image_samples,
+            suppress_logging=self.suppress_logging
         )
         self.image_enhancer = ImageEnhancement()
-        
+
         # When the pipeline is first instantiated, ensure the use has all the necessary paths
         self.data_preprocessor.create_data_dirs(self.input_data_path, self.output_processed_data_path)
-        
+
         # Check if the input directory exists. If not, tell the user.
         if not os.path.exists(self.input_data_path):
             raise FileNotFoundError(f"Input data path does not exist: {self.input_data_path}")
-        
+
         # Check if the output directory exists. If not, create it.
         if not os.path.exists(self.output_processed_data_path):
             os.makedirs(self.output_processed_data_path)
-        
+
         self.logger = CustomLogger().get_logger()
-        
+
         # Determine if the user has pytorch cuda
         self.use_cuda = True if torch.cuda.is_available() else False
         self.device = torch.device('cuda' if self.use_cuda else 'cpu')
         self.logger.info(f"Using device: {self.device}")
-        
+
         self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
         self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
-        
+
         # Constants
         self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
         self.DISP_IMAGE_CAP = 1
         self.PADDING = 5
         self.CONFIDENCE_THRESHOLD = 0.4
-        
+
         tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
         self.tracklets_to_process = tracks[:self.num_tracklets]
-        
+
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
         # Legible data pattern: {tracklet_number: [list of image numbers]}
         for tracklet in self.tracklets_to_process:
             # Allow overwrite if user does not want to use cache
-            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
-            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
-            
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                  config.dataset['SoccerNet']['illegible_result'])
+
             if not os.path.exists(legible_results_path) or self.use_cache is False:
                 with open(legible_results_path, "w") as outfile:
                     json.dump({tracklet: []}, outfile)
-            
+
             # Illegible data pattern: {'illegible': [list of tracklet numbers]}
             if not os.path.exists(illegible_results_path) or self.use_cache is False:
                 with open(illegible_results_path, "w") as outfile:
                     json.dump({'illegible': []}, outfile)
-    
+
     def init_soccer_ball_filter_data_file(self):
         self.logger.info("Creating placeholder data files for Soccer Ball Filter.")
         for tracklet in self.tracklets_to_process:
             # Create one inside each tracklet folder
-            soccer_ball_list_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['soccer_ball_list'])
-            
+            soccer_ball_list_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                 config.dataset['SoccerNet']['soccer_ball_list'])
+
             # See if the user specified use_cache=False
             if self.use_cache is False and os.path.exists(soccer_ball_list_path):
                 os.remove(soccer_ball_list_path)
-            
+
             # Create only a single file to contain all tracklets
             # Check if the file  exists first
             if not os.path.exists(soccer_ball_list_path):
                 # Create the file
                 with open(soccer_ball_list_path, "w") as outfile:
                     json.dump({'ball_tracks': []}, outfile)
-                
+
     def set_legibility_results_data(self):
-        global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+        global_legible_results_path = os.path.join(self.common_processed_data_dir,
+                                                   config.dataset['SoccerNet']['legible_result'])
+        global_illegible_results_path = os.path.join(self.common_processed_data_dir,
+                                                     config.dataset['SoccerNet']['illegible_result'])
 
         # 1) If use_cache is True and both global files exist, skip the loop entirely and load from cache.
-        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(global_illegible_results_path):
+        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(
+                global_illegible_results_path):
             self.logger.info("Reading legible & illegible results from cache (both global files exist).")
             with open(global_legible_results_path, 'r') as f_leg:
                 self.loaded_legible_results = json.load(f_leg)
@@ -228,8 +235,10 @@ class CentralPipeline:
         # 2) Otherwise, we need to re-aggregate from individual tracklet files.
         self.logger.info("Aggregating legible & illegible results (cache not used or only one file is missing).")
         for tracklet in self.tracklets_to_process:
-            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
-            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                  config.dataset['SoccerNet']['illegible_result'])
 
             # Aggregate legible results
             with open(legible_results_path, 'r') as openfile:
@@ -261,9 +270,10 @@ class CentralPipeline:
 
         self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
-        
+
     def set_ball_tracks(self):
-        global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+        global_ball_tracks_path = os.path.join(self.common_processed_data_dir,
+                                               config.dataset['SoccerNet']['soccer_ball_list'])
 
         # 1) If use_cache is True and the global file exists, load and skip aggregation.
         if self.use_cache and os.path.exists(global_ball_tracks_path):
@@ -277,7 +287,8 @@ class CentralPipeline:
         self.logger.info("Aggregating ball tracks (cache not used or file missing).")
         aggregated_ball_tracks = []
         for tracklet in self.tracklets_to_process:
-            local_ball_tracks_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['soccer_ball_list'])
+            local_ball_tracks_path = os.path.join(self.output_processed_data_path, tracklet,
+                                                  config.dataset['SoccerNet']['soccer_ball_list'])
             with open(local_ball_tracks_path, 'r') as f:
                 data = json.load(f)  # data is expected to be {"ball_tracks": [...]}
             # If "ball_tracks" is an array, possibly empty or with a single track name
@@ -290,43 +301,43 @@ class CentralPipeline:
             json.dump({"ball_tracks": self.loaded_ball_tracks}, outfile)
 
         self.logger.info(f"Saved global ball tracks to: {global_ball_tracks_path}")
-                
+
     def init_json_for_pose_estimator(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
-        
+
         # IMPORTANT: Always generate the pose input json
         # REASON: If we have a cache from running on 50 tracklets and we want to do the remainder, we should use that!
         # input json needs to be populated with again so we know what to run pose on
-        
+
         self.logger.info("Generating json for pose")
         self.set_legibility_results_data()
         self.logger.info("Done generating json for pose")
-        
-        #print(f"DEBUG: self.loaded_legible_results: {self.loaded_legible_results}")
-        #print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
-        
+
+        # print(f"DEBUG: self.loaded_legible_results: {self.loaded_legible_results}")
+        # print(f"DEBUG: self.tracklets_to_process: {self.tracklets_to_process}")
+
         all_files = []
-        #print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
+        # print(f"DEBUG: not self.loaded_legible_results is None: {not self.loaded_legible_results is None}")
         if not self.loaded_legible_results is None:
-            #print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
+            # print(f"DEBUG: self.loaded_legible_results.keys(): {self.loaded_legible_results.keys()}")
             for key in self.loaded_legible_results.keys():
-                #print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
+                # print(f"DEBUG: self.loaded_legible_results[key]: {self.loaded_legible_results[key]}")
                 for entry in self.loaded_legible_results[key]:
                     all_files.append(os.path.join(os.getcwd(), entry))
         else:
-            for tr in self.tracklets_to_process: # Only run this for the subset of the tracklet universe
+            for tr in self.tracklets_to_process:  # Only run this for the subset of the tracklet universe
                 track_dir = os.path.join(self.input_data_path, tr)
                 imgs = os.listdir(track_dir)
-                
+
                 # Subset the images to only be up to
                 imgs = imgs[:self.num_image_samples]
                 for img in imgs:
                     all_files.append(os.path.join(track_dir, img))
 
-        #print(f"DEBUG: all_files: {all_files}")
-        #print(f"DEBUG: output_json: {output_json}")
+        # print(f"DEBUG: all_files: {all_files}")
+        # print(f"DEBUG: output_json: {output_json}")
         helpers.generate_json(all_files, output_json)
-                
+
     def run_pose_estimation_model(self):
         input_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_input_json'])
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
@@ -362,27 +373,27 @@ class CentralPipeline:
             self.logger.error(e.stderr)  # Log stderr for debugging
 
         self.logger.info("Done detecting pose")
-        
+
     # get confidence-filtered points from pose results
     def get_points(self, pose):
         points = pose["keypoints"]
         if len(points) < 12:
-            #print("not enough points")
+            # print("not enough points")
             return []
         relevant = [points[6], points[5], points[11], points[12]]
         result = []
         for r in relevant:
             if r[2] < self.CONFIDENCE_THRESHOLD:
-                #print(f"confidence {r[2]}")
+                # print(f"confidence {r[2]}")
                 return []
             result.append(r[:2])
         return result
-        
+
     def process_crop(self, entry, all_legible, crops_destination_dir):
         """
         Process a single pose result entry: if the image is in the keep list (all_legible),
         compute a crop based on the pose keypoints and save the cropped image.
-        
+
         Returns a dictionary with keys:
         - "skipped": a dict (possibly empty) with counts per track (derived from image name)
         - "saved": a list of image names that were successfully cropped and saved
@@ -431,12 +442,12 @@ class CentralPipeline:
     def generate_crops(self, json_file, crops_destination_dir, all_legible=None):
         """
         Parallelized cropping function.
-        
+
         Arguments:
         - json_file: Path to the JSON file containing pose results.
         - crops_destination_dir: Directory where cropped images will be saved.
         - all_legible: Optionally, a precomputed list of image basenames that are legible.
-        
+
         Returns:
         - skipped: Aggregated dictionary of skipped counts per track.
         - saved: Aggregated list of image names that were successfully processed.
@@ -476,19 +487,20 @@ class CentralPipeline:
 
         print(f"skipped {total_misses} out of {len(all_poses)}")
         return aggregated_skipped, aggregated_saved
-        
+
     def run_crops_model(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
-        
+
         self.logger.info("Generate crops")
-        crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
+        crops_destination_dir = os.path.join(self.common_processed_data_dir,
+                                             config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        #self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
+        # self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
         self.set_legibility_results_data()
-        #self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
+        # self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
-        
+
     def run_str_model(self):
         self.logger.info("Predicting numbers")
         os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
@@ -502,7 +514,7 @@ class CentralPipeline:
             "--inference",
             "--result_file", self.str_result_file
         ]
-        
+
         # Cache flag:
         # if self.use_cache:
         #     command.append("--use_cache")
@@ -514,8 +526,8 @@ class CentralPipeline:
             self.logger.error(result.stderr)
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running STR model: {e}")
-            self.logger.info(e.stdout)    # Log stdout even in failure
-            self.logger.error(e.stderr)   # Log stderr for debugging
+            self.logger.info(e.stdout)  # Log stdout even in failure
+            self.logger.error(e.stderr)  # Log stderr for debugging
 
         self.logger.info("Done predicting numbers")
 
@@ -525,12 +537,14 @@ class CentralPipeline:
         Uses the clip4str.py module to handle the processing.
         """
         self.logger.info("Predicting numbers using CLIP4STR model")
-        base_dir = str(Path.cwd().parent.parent)  # Get base project directory
+        # Use the built-in string conversion function explicitly
+        base_dir = __builtins__['str'](Path.cwd().parent.parent)  # Get base project directory
         os.chdir(base_dir)  # ensure correct working directory
         print("Current working directory: ", os.getcwd())
 
-        # Import the clip4str module
+        # Import the clip4str module with a different name to avoid conflict
         sys.path.append(os.path.join(base_dir, "StreamlinedPipelineScripts"))
+        from StreamlinedPipelineScripts import clip4str as clip4str_module
 
         # Set paths
         clip4str_dir = os.path.join(base_dir, "str", "CLIP4STR")
@@ -563,7 +577,7 @@ class CentralPipeline:
         )
 
         self.logger.info("Done predicting numbers with CLIP4STR")
-    
+
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
         if track in illegible_list:
@@ -574,7 +588,7 @@ class CentralPipeline:
         except KeyError:
             return False
         return True
-    
+
     def evaluate_legibility_results(self, load_soccer_ball_list=False):
         self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
 
@@ -601,8 +615,10 @@ class CentralPipeline:
         # Define a worker that processes a single tracklet.
         def worker(track):
             tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, track)
-            illegible_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['illegible_result'])
-            legible_tracklets_path = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['legible_result'])
+            illegible_path = os.path.join(tracklet_processed_output_dir,
+                                          config.dataset['SoccerNet']['illegible_result'])
+            legible_tracklets_path = os.path.join(tracklet_processed_output_dir,
+                                                  config.dataset['SoccerNet']['legible_result'])
 
             # Read legibility results for this tracklet.
             with open(legible_tracklets_path, 'r') as f:
@@ -629,10 +645,10 @@ class CentralPipeline:
                 stats["TP"] = 1
             elif true_value == '-1' and predicted_legible:
                 stats["FP"] = 1
-                #self.logger.info(f"FP: {track}")
+                # self.logger.info(f"FP: {track}")
             elif true_value != '-1' and not predicted_legible:
                 stats["FN"] = 1
-                #self.logger.info(f"FN: {track}")
+                # self.logger.info(f"FN: {track}")
 
             return stats
 
@@ -665,11 +681,12 @@ class CentralPipeline:
         self.logger.info(f'TP={total_TP}, TN={total_TN}, FP={total_FP}, FN={total_FN}')
         self.logger.info(f"Precision={precision}, Recall={recall}")
         self.logger.info(f"F1={f1}")
-        
+
     def consolidated_results(self, image_dir, dict, illegible_path, soccer_ball_list=None):
         if not soccer_ball_list is None or soccer_ball_list == []:
             self.logger.info("Consolidating results: Using soccer ball list")
-            global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
+            global_ball_tracks_path = os.path.join(self.common_processed_data_dir,
+                                                   config.dataset['SoccerNet']['soccer_ball_list'])
             with open(global_ball_tracks_path, 'r') as sf:
                 balls_json = json.load(sf)
             balls_list = balls_json['ball_tracks']
@@ -690,28 +707,29 @@ class CentralPipeline:
             else:
                 dict[t] = int(dict[t])
         return dict
-        
+
     def combine_results(self):
         # 8. combine tracklet results
         # Read predicted results, stack unique predictions, sum confidence scores for each, choose argmax
         results_dict, self.analysis_results = helpers.process_jersey_id_predictions(self.str_result_file, useBias=True)
         # You may also consider your alternative processing methods below.
         illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
-        
-        #self.logger.info(f"DEBUG STR Results: {self.analysis_results}")
-        #self.logger.info(f"DEBUG Results Dict: {results_dict}")
-        #self.logger.info(f"DEBUG Illegible Path: {illegible_path}")
-        #self.logger.info("DEBUG Soccer Ball List: ", self.loaded_ball_tracks)
-        
+
+        # self.logger.info(f"DEBUG STR Results: {self.analysis_results}")
+        # self.logger.info(f"DEBUG Results Dict: {results_dict}")
+        # self.logger.info(f"DEBUG Illegible Path: {illegible_path}")
+        # self.logger.info("DEBUG Soccer Ball List: ", self.loaded_ball_tracks)
+
         # add illegible tracklet predictions (if any)
         self.set_ball_tracks()
-        self.consolidated_dict = self.consolidated_results(self.image_dir, results_dict, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
+        self.consolidated_dict = self.consolidated_results(self.image_dir, results_dict, illegible_path,
+                                                           soccer_ball_list=self.loaded_ball_tracks)
 
         # Save results as JSON.
         final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
         with open(final_results_path, 'w') as f:
             json.dump(self.consolidated_dict, f)
-            
+
     def evaluate_end_results(self):
         # 9. evaluate accuracy
         final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
@@ -720,13 +738,13 @@ class CentralPipeline:
                 self.consolidated_dict = json.load(f)
         with open(self.gt_data_path, 'r') as gf:
             gt_dict = json.load(gf)
-        
+
         # Instead of evaluating against all keys in gt_dict, evaluate only over the common keys.
         common_keys = set(self.consolidated_dict.keys()).intersection(set(gt_dict.keys()))
         print(f"Evaluating on {len(common_keys)} tracklets (out of {len(gt_dict)} in GT).")
-        
+
         self.evaluate_results(self.consolidated_dict, gt_dict, full_results=self.analysis_results, keys=common_keys)
-        
+
     def evaluate_results(self, consolidated_dict, gt_dict, full_results=None, keys=None):
         """
         Evaluates the consolidated results against the ground truth.
@@ -736,17 +754,17 @@ class CentralPipeline:
         SKIP_ILLEGIBLE = False
         if keys is None:
             keys = set(consolidated_dict.keys()).intersection(set(gt_dict.keys()))
-            
+
         correct = 0
         total = 0
         mistakes = []
         count_of_correct_in_full_results = 0
-        
+
         for tid in keys:
             predicted = consolidated_dict[tid]
             # If a key is missing in gt_dict, skip (or assume a default value of -1)
             true_value = gt_dict.get(tid, -1)
-            
+
             if SKIP_ILLEGIBLE and (str(true_value) == "-1" or str(predicted) == "-1"):
                 continue
             if str(true_value) == str(predicted):
@@ -754,14 +772,14 @@ class CentralPipeline:
             else:
                 mistakes.append(tid)
             total += 1
-            
+
         if total > 0:
             accuracy = 100.0 * correct / total
         else:
             accuracy = 0.0
-            
+
         print(f"Total evaluated tracklets: {total}, correct: {correct}, accuracy: {accuracy}%")
-        
+
         # Additional evaluation details.
         illegible_mistake_count = 0
         illegible_gt_count = 0
@@ -773,7 +791,7 @@ class CentralPipeline:
             elif full_results is not None and tid in full_results:
                 if gt_dict[tid] in full_results[tid]['unique']:
                     count_of_correct_in_full_results += 1
-                    
+
         print(f"Mistakes (illegible predicted): {illegible_mistake_count}")
         print(f"Mistakes (legible but GT illegible): {illegible_gt_count}")
         print(f"Correct in full results but not picked: {count_of_correct_in_full_results}")
@@ -793,14 +811,14 @@ class CentralPipeline:
             # If any one of them is missing, return False (i.e., do NOT skip)
             for file in files_to_check:
                 if not os.path.exists(os.path.join(current_tracklet_dir, file)):
-                    #self.logger.info("Cache file missing. Preprocessing cannot be skipped")
+                    # self.logger.info("Cache file missing. Preprocessing cannot be skipped")
                     return False
 
-            #self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
+            # self.logger.info(f"Skipping preprocessing for tracklet: {current_tracklet_dir}")
             return True
 
         return False  # If no use_cache, we never skip
-        
+
     def run_soccernet(self,
                       run_soccer_ball_filter=False,
                       generate_features=False,
@@ -814,7 +832,7 @@ class CentralPipeline:
                       run_eval=True,
                       use_clip4str=True):
         self.logger.info("Running the SoccerNet pipeline.")
-        
+
         if generate_features or run_filter or run_legible:
             # Determine which tracklets to process
             if self.tracklets_to_process_override is None:
@@ -822,7 +840,8 @@ class CentralPipeline:
                 tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
                 tracks = tracks[:self.num_tracklets]
             else:
-                self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
+                self.logger.info(
+                    f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
                 tracks = self.tracklets_to_process_override
                 self.tracklets_to_process = tracks
 
@@ -830,7 +849,7 @@ class CentralPipeline:
 
             # Loop over batches of tracklets
             pbar = tqdm(range(0, len(tracks), self.tracklet_batch_size), leave=True, position=0)
-            
+
             self.logger.info(f"Tracklet batch size: {self.tracklet_batch_size}")
             self.logger.info(f"Image batch size: {self.image_batch_size}")
             self.logger.info(f"Number of workers: {self.num_workers}")
@@ -853,13 +872,14 @@ class CentralPipeline:
 
                 if first_uncached_index is None:
                     # All tracklets in this batch are cached
-                    self.logger.info(f"All tracklets in {batch_start}-{batch_end} are cached. Skipping feature generation.")
+                    self.logger.info(
+                        f"All tracklets in {batch_start}-{batch_end} are cached. Skipping feature generation.")
                     continue
                 else:
                     # Subset from the first uncached tracklet to the end of the batch
                     if first_uncached_index > 0:
                         self.logger.info(f"Skipping first {first_uncached_index} cached tracklets in "
-                                        f"batch {batch_start}-{batch_end}. Processing the rest.")
+                                         f"batch {batch_start}-{batch_end}. Processing the rest.")
                     batch_tracklets = batch_tracklets[first_uncached_index:]
 
                 # Now we only generate features for what we need in this batch
@@ -876,7 +896,7 @@ class CentralPipeline:
 
                 # Initialize files that rely on self.tracklets_to_process
                 self.init_soccer_ball_filter_data_file()
-                #self.init_legibility_classifier_data_file()
+                # self.init_legibility_classifier_data_file()
 
                 # Phase 1: Process each tracklet in parallel for this batch
                 tasks = []
@@ -912,15 +932,16 @@ class CentralPipeline:
                 with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
                     futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
-                    pbar = tqdm(total=len(futures), 
-                                desc=f"Processing Batch Tracklets ({batch_start}-{batch_start + self.tracklet_batch_size})", 
+                    pbar = tqdm(total=len(futures),
+                                desc=f"Processing Batch Tracklets ({batch_start}-{batch_start + self.tracklet_batch_size})",
                                 leave=True, position=0)  # Fixes flickering
 
                     for future in as_completed(futures):
                         tracklet_name = futures[future]  # Get tracklet name associated with this future
                         if future.exception() is not None:
                             # Log the worker exception BEFORE calling .result()
-                            self.logger.error(f"Worker crashed for tracklet {tracklet_name}: {future.exception()}", exc_info=True)
+                            self.logger.error(f"Worker crashed for tracklet {tracklet_name}: {future.exception()}",
+                                              exc_info=True)
                             continue
 
                         try:
@@ -930,8 +951,9 @@ class CentralPipeline:
                             final_processed_data[result] = result  # Adjust as needed
                         except Exception as e:
                             # Log unexpected exceptions
-                            self.logger.error(f"Unexpected error processing tracklet {tracklet_name}: {e}", exc_info=True)
-                        
+                            self.logger.error(f"Unexpected error processing tracklet {tracklet_name}: {e}",
+                                              exc_info=True)
+
                         pbar.update(1)  # Ensure tqdm updates properly
 
                     pbar.close()
