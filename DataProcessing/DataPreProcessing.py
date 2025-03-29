@@ -21,6 +21,7 @@ from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
 import torch.multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from DataProcessing.DataAugmentation import ImageEnhancement
 
 class ModelUniverse(Enum):
   REID_CENTROID = "REID"
@@ -81,6 +82,8 @@ class DataPreProcessing:
 
         self.num_images_processed = 0
         
+        self.image_enhancement = ImageEnhancement()
+        
         if not self.suppress_logging:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
             
@@ -138,18 +141,43 @@ class DataPreProcessing:
 
         images = [img for img in os.listdir(track_path) if not img.startswith('.')]
         track_features = []
+
+        show_first = True  # <- Only show the first image in the tracklet
+
         for img_path in images:
             img_full_path = os.path.normpath(os.path.join(track_path, img_path))
             try:
-                # Load image using cv2 and convert to PIL format
                 img = cv2.imread(img_full_path)
                 if img is None:
                     continue
-                processed_image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                # Apply transforms
-                transformed = val_transforms(processed_image)  # returns a tensor
 
-                # Simply store the tensor (add a batch dimension for later concatenation)
+                # Convert BGR to RGB
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), values in [0, 1]
+
+                # Normalize using ImageNet stats
+                img_tensor = transforms.Normalize(
+                    mean=self.image_enhancement.mean.squeeze(),
+                    std=self.image_enhancement.std.squeeze()
+                )(img_tensor)
+
+                # Enhance using your module
+                img_tensor = self.image_enhancement.enhance_image(img_tensor)
+
+                # === 🖼️ SHOW FIRST IMAGE AFTER ENHANCEMENT ===
+                if show_first:
+                    denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
+                    img_np = denorm_img.detach().cpu().permute(1, 2, 0).numpy()  # (H, W, C)
+                    plt.imshow(img_np)
+                    plt.title(f"Enhanced image from track: {track}")
+                    plt.axis("off")
+                    plt.show()
+                    show_first = False  # Disable further shows in this track
+
+                # If val_transforms expects PIL input, convert back from tensor
+                img_pil = transforms.ToPILImage()(denorm_img)
+                transformed = val_transforms(img_pil)
+
                 track_features.append(transformed.unsqueeze(0))
             except Exception as e:
                 logging.info(f"Error processing {img_full_path}: {e}")

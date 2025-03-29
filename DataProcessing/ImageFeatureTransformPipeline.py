@@ -152,7 +152,7 @@ class ImageFeatureTransformPipeline:
         with torch.no_grad():
             # Wrap entire inference loop in the GPU semaphore if using CUDA.
             if with_cuda and self.use_cuda:
-                context = GPU_SEMAPHORE
+                context = self.GPU_SEMAPHORE
             else:
                 # Use a dummy context manager if not using CUDA. This is just to modularize the code a bit
                 from contextlib import nullcontext

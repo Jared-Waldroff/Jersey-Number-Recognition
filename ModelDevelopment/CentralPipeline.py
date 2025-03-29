@@ -224,6 +224,10 @@ class CentralPipeline:
         self.num_threads_multiplier = num_threads_multiplier
         self.tracklets_to_process_override = tracklets_to_process_override
         
+        # If tracklets_to_process_override is a series of ints, convert them to strings
+        if self.tracklets_to_process_override is not None and isinstance(self.tracklets_to_process_override, list):
+            self.tracklets_to_process_override = [str(x) for x in self.tracklets_to_process_override]
+        
         self.loaded_ball_tracks = None
         self.analysis_results = None
         
@@ -261,8 +265,12 @@ class CentralPipeline:
         self.PADDING = 5
         self.CONFIDENCE_THRESHOLD = 0.4
         
-        tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
-        self.tracklets_to_process = tracks[:self.num_tracklets]
+        if self.tracklets_to_process_override is not None:
+            self.tracklets_to_process = self.tracklets_to_process_override
+        else:
+            tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+            self.tracklets_to_process = tracks[:self.num_tracklets]
+        
         
         # Limit concurrent GPU calls (example).
         # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
@@ -1000,8 +1008,6 @@ class CentralPipeline:
                 tracks = tracks[:self.num_tracklets]
             else:
                 self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
-                tracks = self.tracklets_to_process_override
-                self.tracklets_to_process = tracks
 
             final_processed_data = {}
 
@@ -1049,7 +1055,7 @@ class CentralPipeline:
                 )
 
                 # Set working subset for this batch
-                self.tracklets_to_process = list(data_dict.keys())
+                batch_tracklets_to_process = list(data_dict.keys())
 
                 # Initialize files that rely on self.tracklets_to_process
                 self.init_soccer_ball_filter_data_file()
@@ -1065,7 +1071,7 @@ class CentralPipeline:
                         self.output_processed_data_path,
                         self.use_cache,
                         self.input_data_path,
-                        self.tracklets_to_process,
+                        batch_tracklets_to_process,
                         self.common_processed_data_dir,
                         run_soccer_ball_filter,
                         generate_features,

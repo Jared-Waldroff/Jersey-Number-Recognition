@@ -124,7 +124,7 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
+    def pass_through_legibility_classifier(self, use_filtered=False, filter='gauss', exclude_balls=False):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         # DO NOT USE: Caching is now controlled in CentralPipeline
@@ -137,6 +137,8 @@ class ImageBatchPipeline:
         #     if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
         #         self.logger.info("Using existing cache for legibility classifier. Skipping.")
         #         return
+        
+        current_tracklet_input_data_path = os.path.join(self.input_data_path, self.current_tracklet_number)
         
         if use_filtered:
             if filter == 'sim': # Do not use
@@ -154,8 +156,8 @@ class ImageBatchPipeline:
             with open(path_to_filter_results, 'r') as f:
                 filtered = json.load(f)
 
+        updated_tracklets = []
         if exclude_balls:
-            updated_tracklets = []
             soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
             
             # Check if the soccer_ball_list even exists first, and if not, skip
@@ -175,7 +177,8 @@ class ImageBatchPipeline:
             images = filtered[self.current_tracklet_number]
         else:
             # Otherwise no keep list, just all of them
-            images = os.listdir(self.input_data_path)
+            self.logger.info(f"Using all images in tracklet {self.current_tracklet_number} for legibility classification.")
+            images = [img for img in os.listdir(current_tracklet_input_data_path) if not img.startswith('.')]
         
         # images_full_path is either filtered down now or just all images
         images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
@@ -188,6 +191,7 @@ class ImageBatchPipeline:
             self.logger.info(f"Tracklet {self.current_tracklet_number} is illegible.")
             self.illegible_tracklets.append(self.current_tracklet_number)
         else:
+            self.logger.info(f"Tracklet {self.current_tracklet_number} is legible.")
             legible_images = [images_full_path[i] for i in legible]
             self.legible_tracklets[self.current_tracklet_number] = legible_images
                 
