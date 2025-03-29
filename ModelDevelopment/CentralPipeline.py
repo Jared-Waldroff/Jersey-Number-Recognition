@@ -19,6 +19,7 @@ import logging
 import configuration as config
 import json
 import subprocess
+import threading
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -143,7 +144,7 @@ def process_tracklet_worker(args):
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
          run_soccer_ball_filter, generate_features, run_filter, run_legible,
-         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size) = args
+         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size, GPU_SEMAPHORE) = args
 
         # Limit images if required.
         if num_images_per_tracklet is not None:
@@ -176,7 +177,8 @@ def process_tracklet_worker(args):
             generate_features=generate_features,
             run_filter=run_filter,
             run_legible=run_legible,
-            image_batch_size=image_batch_size
+            image_batch_size=image_batch_size,
+            GPU_SEMAPHORE=GPU_SEMAPHORE
         )
         pipeline.run_model_chain()
         return tracklet
@@ -261,6 +263,11 @@ class CentralPipeline:
         
         tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
         self.tracklets_to_process = tracks[:self.num_tracklets]
+        
+        # Limit concurrent GPU calls (example).
+        # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
+        # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
+        self.GPU_SEMAPHORE = threading.Semaphore(value=1)
         
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
@@ -724,22 +731,24 @@ class CentralPipeline:
     def evaluate_legibility_results(self, load_soccer_ball_list=False):
         self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
 
-        # Initialize accumulators
+        # Initialize accumulators and lists for failed cases.
         total_correct = 0
         total_tracks = 0
         total_TP = 0
         total_FP = 0
         total_FN = 0
         total_TN = 0
+        all_false_positive = []  # Tracklets that are illegible in ground truth but predicted as legible.
+        all_false_negative = []  # Tracklets that are legible in ground truth but predicted as illegible.
 
         # Read the ground truth file once (shared across workers)
         with open(self.gt_data_path, 'r') as gf:
             gt_dict = json.load(gf)
 
-        # If a soccer ball list is to be used, load it once and pass to workers.
+        # If a soccer ball list is to be used, load it once.
         balls_list = []
         if load_soccer_ball_list:
-            # TODO: Change from load_soccer_ball_list to actual path
+            # TODO: Change from load_soccer_ball_list to actual path.
             with open(load_soccer_ball_list, 'r') as sf:
                 balls_json = json.load(sf)
             balls_list = balls_json.get('ball_tracks', [])
@@ -758,27 +767,38 @@ class CentralPipeline:
 
             # Skip processing if this tracklet is in the soccer ball list.
             if track in balls_list:
-                return {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0}
+                return {
+                    "correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0,
+                    "FP_tracks": [], "FN_tracks": []
+                }
 
             # Get the ground truth value and determine predicted legibility.
             true_value = str(gt_dict[track])
             predicted_legible = self.is_track_legible(track, illegible_list, legible_tracklets)
 
-            # Initialize per-track statistics.
-            stats = {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 1}
+            # Initialize per-track statistics and lists for failed cases.
+            stats = {
+                "correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 1,
+                "FP_tracks": [], "FN_tracks": []
+            }
 
+            # Evaluate and record misclassifications:
+            # Ground truth == '-1' means track should be illegible.
             if true_value == '-1' and not predicted_legible:
                 stats["correct"] = 1
                 stats["TN"] = 1
+            # Ground truth != '-1' means track should be legible.
             elif true_value != '-1' and predicted_legible:
                 stats["correct"] = 1
                 stats["TP"] = 1
+            # Misclassification: track is illegible in GT but predicted as legible.
             elif true_value == '-1' and predicted_legible:
                 stats["FP"] = 1
-                #self.logger.info(f"FP: {track}")
+                stats["FP_tracks"].append(track)
+            # Misclassification: track is legible in GT but predicted as illegible.
             elif true_value != '-1' and not predicted_legible:
                 stats["FN"] = 1
-                #self.logger.info(f"FN: {track}")
+                stats["FN_tracks"].append(track)
 
             return stats
 
@@ -797,6 +817,8 @@ class CentralPipeline:
                     total_FP += result["FP"]
                     total_FN += result["FN"]
                     total_tracks += result["total"]
+                    all_false_positive.extend(result.get("FP_tracks", []))
+                    all_false_negative.extend(result.get("FN_tracks", []))
                 except Exception as e:
                     self.logger.error(f"Error processing a tracklet: {e}")
 
@@ -810,6 +832,16 @@ class CentralPipeline:
         self.logger.info(f'TP={total_TP}, TN={total_TN}, FP={total_FP}, FN={total_FN}')
         self.logger.info(f"Precision={precision}, Recall={recall}")
         self.logger.info(f"F1={f1}")
+
+        # Save the failed cases (misclassified tracklets) as a JSON file.
+        failed_cases = {
+            "legible_but_marked_illegible": all_false_negative,  # Should be legible but predicted illegible.
+            "illegible_but_marked_legible": all_false_positive   # Should be illegible but predicted legible.
+        }
+        failed_cases_file = os.path.join(self.common_processed_data_dir, 'failed_legibility_cases.json')
+        with open(failed_cases_file, 'w') as f:
+            json.dump(failed_cases, f)
+        self.logger.info(f"Saved failed legibility cases to: {failed_cases_file}")
         
     def consolidated_results(self, image_dir, dict, illegible_path, soccer_ball_list=None):
         if not soccer_ball_list is None or soccer_ball_list == []:
@@ -1042,7 +1074,8 @@ class CentralPipeline:
                         self.display_transformed_image_sample,
                         self.suppress_logging,
                         self.num_images_per_tracklet,
-                        self.image_batch_size
+                        self.image_batch_size,
+                        self.GPU_SEMAPHORE
                     )
                     tasks.append(args)
 

@@ -36,6 +36,7 @@ class ImageBatchPipeline:
                 generate_features: bool,
                 run_filter: bool,
                 run_legible: bool,
+                GPU_SEMAPHORE,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
                 use_cache: bool=True,
@@ -55,6 +56,7 @@ class ImageBatchPipeline:
         self.run_filter=run_filter
         self.run_legible=run_legible
         self.image_batch_size = image_batch_size
+        self.GPU_SEMAPHORE = GPU_SEMAPHORE
         self.image_feature_transform = ImageFeatureTransformPipeline(
           run_soccer_ball_filter=run_soccer_ball_filter,
           generate_features=generate_features,
@@ -67,7 +69,8 @@ class ImageBatchPipeline:
           output_tracklet_processed_data_path=self.output_tracklet_processed_data_path,
           suppress_logging=self.suppress_logging,
           use_cache=self.use_cache,
-          image_batch_size=self.image_batch_size)
+          image_batch_size=self.image_batch_size,
+          GPU_SEMAPHORE=self.GPU_SEMAPHORE)
         self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
