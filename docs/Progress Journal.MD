@@ -327,7 +327,8 @@ Status updates from all teams:
 | Task | Assignee | Due Date | Status |
 |------|----------|----------|---------|
 | Complete ResNet optimization implementation | Muskaan, Jeremy | March 27, 2025 | Completed |
-| Finalize STR model tuning | Jared | March 27, 2025 | In Progress |
+| Get new STR POC working | Jared | March 28, 2025 | Done |
+| Fully integrate new STR and run experiments | Jared | March 31st, 2025 | In-progress |
 | Create research framework (overhaul entire pipeline) | Colin | March 27, 2025 | Done |
 | Bottleneck exploration | Colin | March 27, 2025 | Done |
 | Improved legibility classifier / reduced error rate for illegible tracklets | Colin | March 30th, 2025 | In-Progress |
