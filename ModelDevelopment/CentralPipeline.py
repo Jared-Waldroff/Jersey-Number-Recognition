@@ -19,6 +19,8 @@ import logging
 import configuration as config
 import json
 import subprocess
+import sys
+import StreamlinedPipelineScripts.clip4str as clip4str_module
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -640,7 +642,6 @@ class CentralPipeline:
 
         # Import the clip4str module with a different name to avoid conflict
         sys.path.append(os.path.join(base_dir, "StreamlinedPipelineScripts"))
-        from StreamlinedPipelineScripts import clip4str as clip4str_module
 
         # Set paths
         clip4str_dir = os.path.join(base_dir, "str", "CLIP4STR")
