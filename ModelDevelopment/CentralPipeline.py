@@ -105,7 +105,6 @@ class CentralPipeline:
                 output_processed_data_path: DataPaths,
                 common_processed_data_dir: DataPaths,
                 num_workers: int=8,
-                single_image_pipeline: bool=False,
                 display_transformed_image_sample: bool=False,
                 num_image_samples: int=1,
                 use_cache: bool=True,
@@ -121,7 +120,6 @@ class CentralPipeline:
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
         self.common_processed_data_dir = common_processed_data_dir
-        self.single_image_pipeline = single_image_pipeline
         self.display_transformed_image_sample = display_transformed_image_sample
         self.num_image_samples = num_image_samples
         self.use_cache = use_cache
