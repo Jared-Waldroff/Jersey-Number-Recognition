@@ -19,7 +19,7 @@ def main():
     tracks, max_track = data_preprocessor.get_tracks(DataPaths.TEST_DATA_DIR.value)
 
     # Randomly select a subset of tracks
-    num_tracklets_to_process = 3  # Change this to the number of random tracklets you want
+    num_tracklets_to_process = 4  # Change this to the number of random tracklets you want
     random_tracklets = random.sample(tracks, num_tracklets_to_process)
 
     pipeline = CentralPipeline(
@@ -60,7 +60,8 @@ def main():
       run_str=True,
       run_combine=True,
       run_eval=True,
-      use_clip4str=True)
+      use_clip4str=True,
+      pyscrippt=True)
 
 
 if __name__ == '__main__':

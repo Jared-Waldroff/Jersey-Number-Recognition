@@ -264,8 +264,86 @@ class CentralPipeline:
         self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
 
+    def aggregate_legibility_results_data(self):
+        global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+        global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+
+        # 1) If use_cache is True and both global files exist, skip the loop entirely and load from cache.
+        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(global_illegible_results_path):
+            self.logger.info("Reading legible & illegible results from cache (both global files exist).")
+            with open(global_legible_results_path, 'r') as f_leg:
+                self.loaded_legible_results = json.load(f_leg)
+            with open(global_illegible_results_path, 'r') as f_ill:
+                self.loaded_illegible_results = json.load(f_ill)
+            return  # Skip re-aggregation altogether
+
+        # 2) Otherwise, we need to re-aggregate from individual tracklet files.
+        self.logger.info("Aggregating legible & illegible results (cache not used or only one file is missing).")
+        for tracklet in self.tracklets_to_process:
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
+
+            # Aggregate legible results
+            with open(legible_results_path, 'r') as openfile:
+                legible_results = json.load(openfile)
+                if self.loaded_legible_results is None:
+                    self.loaded_legible_results = legible_results
+                else:
+                    for key, val in legible_results.items():
+                        if key in self.loaded_legible_results:
+                            self.loaded_legible_results[key].extend(val)
+                        else:
+                            self.loaded_legible_results[key] = val
+
+            # Aggregate illegible results
+            # The structure is: {'illegible': [list of tracklet numbers]}
+            with open(illegible_results_path, 'r') as openfile:
+                illegible_results = json.load(openfile)
+                if self.loaded_illegible_results is None:
+                    self.loaded_illegible_results = illegible_results
+                else:
+                    self.loaded_illegible_results['illegible'].extend(illegible_results['illegible'])
+
+        # 3) Write aggregated results back to the global files.
+        with open(global_legible_results_path, 'w') as outfile:
+            json.dump(self.loaded_legible_results, outfile)
+
+        with open(global_illegible_results_path, 'w') as outfile:
+            json.dump(self.loaded_illegible_results, outfile)
+
+        self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
+        self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
+
     def aggregate_pose(self):
-        pass
+        """Aggregates pose results from individual tracklet files into a global file."""
+        self.logger.info("Aggregating pose results from tracklets")
+
+        global_pose_results_path = os.path.join(self.common_processed_data_dir,
+                                                config.dataset['SoccerNet']['pose_output_json'])
+
+        # Skip if using cache and file exists
+        if self.use_cache and os.path.exists(global_pose_results_path):
+            self.logger.info("Using cached global pose results file")
+            return
+
+        # Initialize structure for all pose results
+        all_pose_results = {"pose_results": []}
+
+        # Collect results from each tracklet
+        for tracklet in self.legible_tracklets_list:
+            tracklet_pose_path = os.path.join(self.output_processed_data_path, tracklet,
+                                              config.dataset['SoccerNet']['pose_output_json'])
+            if os.path.exists(tracklet_pose_path):
+                with open(tracklet_pose_path, 'r') as f:
+                    tracklet_data = json.load(f)
+                    # Add all pose results from this tracklet
+                    all_pose_results["pose_results"].extend(tracklet_data.get("pose_results", []))
+
+        # Write the combined results
+        with open(global_pose_results_path, 'w') as f:
+            json.dump(all_pose_results, f)
+
+        self.logger.info(f"Aggregated pose results from {len(self.legible_tracklets_list)} tracklets")
 
     def set_ball_tracks(self):
         global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
@@ -303,7 +381,7 @@ class CentralPipeline:
         in that tracklet's processed directory) that lists the full paths of the images.
         """
         self.logger.info("Generating json for pose")
-        self.aggregate_legibility_results_data()
+        self.set_legibility_results_data()
 
         # Need to perform a set difference because loaded_legible_results.keys() is just all tracklets, but array will be empty
         # loaded_illegible_results.keys() is only the illegible ones
@@ -400,15 +478,11 @@ class CentralPipeline:
                 # Get direct path to Python in vitpose environment
                 vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "vitpose", "python.exe")
 
-                # Create environment with KMP_DUPLICATE_LIB_OK set to TRUE
-                env = os.environ.copy()
-                env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
                 command = [
                     vitpose_python,  # Use direct path to Python executable instead of conda run
                     f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-                    f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                    f"{config.pose_home}/checkpoints/vitpose-h.pth",
+                    "configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+                    "checkpoints/vitpose-h.pth",
                     "--img-root", "/",
                     "--json-file", input_json,
                     "--out-json", output_json
@@ -418,8 +492,8 @@ class CentralPipeline:
                 command = [
                     "conda", "run", "-n", config.pose_env, "python", "-u",
                     pose_script_path,
-                    pose_config_path,
-                    pose_checkpoint_path,
+                    "configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+                    "checkpoints/vitpose-h.pth",
                     "--img-root", "/",
                     "--json-file", input_json,
                     "--out-json", output_json,
@@ -586,16 +660,18 @@ class CentralPipeline:
 
         print(f"skipped {total_misses} out of {len(all_poses)}")
         return aggregated_skipped, aggregated_saved
-        
+
     def run_crops_model(self):
-        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
-        
         self.logger.info("Generate crops")
-        crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
+        crops_destination_dir = os.path.join(self.common_processed_data_dir,
+                                             config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        #self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
-        self.aggregate_legibility_results_data()
-        #self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
+        self.set_legibility_results_data()
+
+        # Add this line to aggregate pose results
+        self.aggregate_pose()
+
+        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
         
@@ -912,17 +988,18 @@ class CentralPipeline:
         return False  # If no use_cache, we never skip
         
     def run_soccernet(self,
-                      run_soccer_ball_filter=False,
-                      generate_features=False,
-                      run_filter=False,
-                      run_legible=False,
-                      run_legible_eval=False,
-                      run_pose=False,
-                      run_crops=False,
+                      run_soccer_ball_filter=True,
+                      generate_features=True,
+                      run_filter=True,
+                      run_legible=True,
+                      run_legible_eval=True,
+                      run_pose=True,
+                      run_crops=True,
                       run_str=True,
                       run_combine=True,
                       run_eval=True,
-                      use_clip4str=True):
+                      use_clip4str=True,
+                      pyscrippt=True):
         self.logger.info("Running the SoccerNet pipeline.")
         
         if generate_features or run_filter or run_legible:
@@ -1052,7 +1129,7 @@ class CentralPipeline:
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed
             self.init_json_for_pose_estimator()
-            self.run_pose_estimation_model()
+            self.run_pose_estimation_model(pyscrippt=pyscrippt)
         if run_crops:
             self.run_crops_model()
         if run_str:
