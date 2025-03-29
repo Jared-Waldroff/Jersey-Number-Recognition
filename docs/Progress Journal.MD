@@ -328,7 +328,11 @@ Status updates from all teams:
 |------|----------|----------|---------|
 | Complete ResNet optimization implementation | Muskaan, Jeremy | March 27, 2025 | Completed |
 | Finalize STR model tuning | Jared | March 27, 2025 | In Progress |
-| Integrate data augmentation | Colin | March 27, 2025 | In Progress |
+| Create research framework (overhaul entire pipeline) | Colin | March 27, 2025 | Done |
+| Bottleneck exploration | Colin | March 27, 2025 | Done |
+| Improved legibility classifier / reduced error rate for illegible tracklets | Colin | March 30th, 2025 | In-Progress |
+| Parallelized psoe + crops + STR | Colin | March 29th, 2025 | In-Progress |
+| Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | In Progress |
 | Complete transformer implementation | Aadil, Mahmoud | March 27, 2025 | Status Unknown |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
 | Complete slide deck for presentation | All members | March 31, 2025 |In Progress |
@@ -338,7 +342,7 @@ Status updates from all teams:
 ## Technical Progress Summary
 1. Pipeline Optimization:
    - 4x performance improvement achieved
-   - Full dataset processing time reduced to 7.48 hours
+   - Full dataset processing time reduced to 7.48 hours (down from 35-40 hours)
    - Modular architecture implemented
    - Enhanced logging and debugging capabilities
    - Memory optimization and parallel processing implemented (18 threads)
