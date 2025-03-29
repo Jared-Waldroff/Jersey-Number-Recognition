@@ -26,6 +26,94 @@ from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUn
 from DataProcessing.Logger import CustomLogger
 import helpers
 
+def pose_worker(tracklet, output_processed_data_path, image_batch_size,
+                  pose_env, pose_home, use_cache, logging_config, pyscript):
+    """
+    Process one tracklet: build paths and run the pose.py command.
+    """
+    # Setup logging in the worker process
+    logger = logging.getLogger(f"pose_worker_{tracklet}")
+    logging.basicConfig(**logging_config)
+    
+    logger.info(f"Worker called for tracklet: {tracklet}")
+    
+    # Use absolute paths exclusively, avoid Path.cwd() which may differ in the worker process
+    cwd = os.path.abspath(os.getcwd())
+    parent_dir = os.path.dirname(os.path.dirname(cwd))
+    
+    # Build absolute paths for input/output JSON for this tracklet.
+    input_json = os.path.abspath(os.path.join(
+        output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json']))
+    output_json = os.path.abspath(os.path.join(
+        output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
+
+    if not os.path.exists(input_json):
+        logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
+        return  # Return early if input file doesn't exist
+
+    # Build absolute path to the pose.py script using the explicit parent directory
+    pose_script_path = os.path.abspath(os.path.join(
+        parent_dir, "StreamlinedPipelineScripts", "pose.py"))
+
+    # Build absolute paths for config and checkpoint files
+    pose_config_path = os.path.abspath(os.path.join(
+        parent_dir, pose_home, "configs", "body", "2d_kpt_sview_rgb_img",
+        "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
+    pose_checkpoint_path = os.path.abspath(os.path.join(
+        parent_dir, pose_home, "checkpoints", "vitpose-h.pth"))
+
+    if pyscript:
+        # Use direct path to python.exe in the specified conda environment.
+        vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", pose_env, "python.exe")
+        env_vars = os.environ.copy()
+        env_vars["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        command = [
+            vitpose_python,
+            os.path.abspath(os.path.join(Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py")),
+            os.path.join(pose_home, "configs", "body", "2d_kpt_sview_rgb_img", "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"),
+            os.path.join(pose_home, "checkpoints", "vitpose-h.pth"),
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json
+        ]
+    else:
+        logger.info("Using conda run for pose estimation")
+        command = [
+            "conda", "run", "-n", pose_env, "python", "-u",
+            pose_script_path,
+            pose_config_path,
+            pose_checkpoint_path,
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json,
+            "--image-batch-size", str(image_batch_size)
+        ]
+
+    if use_cache and os.path.exists(output_json):
+        logger.info(f"[{tracklet}] Output JSON exists, skipping: {output_json}")
+        return
+
+    logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                logger.info(f"[{tracklet}] {line.strip()}")
+        process.stdout.close()
+        return_code = process.wait()
+        if return_code != 0:
+            logger.error(f"[{tracklet}] Process returned non-zero exit code: {return_code}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[{tracklet}] Pose estimation failed: {e}")
+        logger.info(e.stdout)
+        logger.error(e.stderr)
+
 def process_tracklet_worker(args):
     """
     Worker function to process a single tracklet.
@@ -309,7 +397,6 @@ class CentralPipeline:
         self.legible_tracklets_list = sorted(legible_set)
         self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
         self.logger.info(f"Legible  tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
-        # Convert back to strings if you require that
         
         num_messages = 0
 
@@ -367,107 +454,49 @@ class CentralPipeline:
 
         self.logger.info("Completed generating JSON for pose")
                 
-    def run_pose_estimation_model(self, series=False, pyscrippt=False):
+    def run_pose_estimation_model(self, series=False, pyscript=False):
         self.logger.info("Detecting pose")
 
-        def worker(tracklet):
-            # Build absolute paths for the input and output JSON files for this tracklet
-            input_json = os.path.abspath(os.path.join(
-                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json']))
-            output_json = os.path.abspath(os.path.join(
-                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
-
-            if not os.path.exists(input_json):
-                self.logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
-
-            # Build absolute path to the pose.py script
-            pose_script_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py"))
-
-            # Config and checkpoint
-            pose_config_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, config.pose_home, "configs", "body", "2d_kpt_sview_rgb_img",
-                "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
-            pose_checkpoint_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, config.pose_home, "checkpoints", "vitpose-h.pth"))
-            
-            if pyscrippt:
-                # Get direct path to Python in vitpose environment
-                vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "vitpose", "python.exe")
-
-                # Create environment with KMP_DUPLICATE_LIB_OK set to TRUE
-                env = os.environ.copy()
-                env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-                command = [
-                    vitpose_python,  # Use direct path to Python executable instead of conda run
-                    f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-                    f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                    f"{config.pose_home}/checkpoints/vitpose-h.pth",
-                    "--img-root", "/",
-                    "--json-file", input_json,
-                    "--out-json", output_json
-                ]
-            
-            else:
-                command = [
-                    "conda", "run", "-n", config.pose_env, "python", "-u",
-                    pose_script_path,
-                    pose_config_path,
-                    pose_checkpoint_path,
-                    "--img-root", "/",
-                    "--json-file", input_json,
-                    "--out-json", output_json,
-                    "--image-batch-size", str(self.image_batch_size)
-                ]
-            
-            if self.use_cache and os.path.exists(output_json):
-                self.logger.info("Output JSON exists, skipping: {output_json}")
-                return
-
-            #self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
-
-            try:
-                process = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1
-                )
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        self.logger.info(f"[{tracklet}] {line.strip()}")
-                process.stdout.close()
-                return_code = process.wait()
-                if return_code != 0:
-                    self.logger.error(f"[{tracklet}] Process returned non-zero exit code: {return_code}")
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"[{tracklet}] Pose estimation failed: {e}")
-                self.logger.info(e.stdout)
-                self.logger.error(e.stderr)
-
+        # If running in series, call the worker function for each tracklet sequentially.
         if series:
-            # Run in series (safe for GPU memory)
             self.logger.info("Running pose estimation in series")
             for tracklet in tqdm(self.legible_tracklets_list, desc="Running pose estimation (series)", leave=True):
-                worker(tracklet)
+                pose_worker(tracklet,
+                                self.output_processed_data_path,
+                                self.image_batch_size,
+                                config.pose_env,
+                                config.pose_home,
+                                self.use_cache,
+                                self.logger,
+                                pyscript)
         else:
-            # Run in parallel
             self.logger.info(f"Legible tracklets list: {', '.join(self.legible_tracklets_list)}")
             futures = []
-            # Heavy duty process so do not multiply workers with the thread multiplier
-            self.logger.info(f"Running pose estimation with multithreading with {self.num_workers} threads")
+            self.logger.info(f"Running pose estimation with multiprocessing using {self.num_workers} workers")
             if self.num_workers > 2:
-                self.logger.warning("Using a high number of workers for pose estimation may cause GPU memory issues")
-                self.logger.warning("Consider reducing the number of workers or number of images per batch for safety")
+                self.logger.warning("High number of workers may cause GPU memory issues; consider reducing workers or images per batch.")
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            
+            # Configure logging for processes
+            logging_config = {
+                'level': "INFO",
+                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                # Add other logger configuration if needed
+            }
+            
             with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
-                    self.logger.info(f"Processing tracklet {tracklet}")
-                    futures.append(executor.submit(worker, tracklet))
-
+                    futures.append(executor.submit(pose_worker,
+                                                tracklet,
+                                                self.output_processed_data_path,
+                                                self.image_batch_size,
+                                                config.pose_env,
+                                                config.pose_home,
+                                                self.use_cache,
+                                                logging_config,  # Pass config instead of logger object
+                                                pyscript))
                 for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
-                    pass  # tqdm progress
+                    pass  # Simply update progress
 
         self.logger.info("Done detecting pose")
         
