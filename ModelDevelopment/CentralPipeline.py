@@ -315,35 +315,7 @@ class CentralPipeline:
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
 
     def aggregate_pose(self):
-        """Aggregates pose results from individual tracklet files into a global file."""
-        self.logger.info("Aggregating pose results from tracklets")
-
-        global_pose_results_path = os.path.join(self.common_processed_data_dir,
-                                                config.dataset['SoccerNet']['pose_output_json'])
-
-        # Skip if using cache and file exists
-        if self.use_cache and os.path.exists(global_pose_results_path):
-            self.logger.info("Using cached global pose results file")
-            return
-
-        # Initialize structure for all pose results
-        all_pose_results = {"pose_results": []}
-
-        # Collect results from each tracklet
-        for tracklet in self.legible_tracklets_list:
-            tracklet_pose_path = os.path.join(self.output_processed_data_path, tracklet,
-                                              config.dataset['SoccerNet']['pose_output_json'])
-            if os.path.exists(tracklet_pose_path):
-                with open(tracklet_pose_path, 'r') as f:
-                    tracklet_data = json.load(f)
-                    # Add all pose results from this tracklet
-                    all_pose_results["pose_results"].extend(tracklet_data.get("pose_results", []))
-
-        # Write the combined results
-        with open(global_pose_results_path, 'w') as f:
-            json.dump(all_pose_results, f)
-
-        self.logger.info(f"Aggregated pose results from {len(self.legible_tracklets_list)} tracklets")
+        pass
 
     def set_ball_tracks(self):
         global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
@@ -381,7 +353,7 @@ class CentralPipeline:
         in that tracklet's processed directory) that lists the full paths of the images.
         """
         self.logger.info("Generating json for pose")
-        self.set_legibility_results_data()
+        self.aggregate_legibility_results_data()
 
         # Need to perform a set difference because loaded_legible_results.keys() is just all tracklets, but array will be empty
         # loaded_illegible_results.keys() is only the illegible ones
@@ -662,16 +634,15 @@ class CentralPipeline:
         return aggregated_skipped, aggregated_saved
 
     def run_crops_model(self):
+        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
+
         self.logger.info("Generate crops")
         crops_destination_dir = os.path.join(self.common_processed_data_dir,
                                              config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        self.set_legibility_results_data()
-
-        # Add this line to aggregate pose results
-        self.aggregate_pose()
-
-        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
+        # self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
+        self.aggregate_legibility_results_data()
+        # self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
         
