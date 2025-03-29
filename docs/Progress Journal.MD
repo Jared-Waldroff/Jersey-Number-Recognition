@@ -333,7 +333,7 @@ Status updates from all teams:
 | Bottleneck exploration | Colin | March 27, 2025 | Done |
 | Feature enhancement POC (image enhance) | Colin | March 29th, 2025 | In-progress |
 | Improved legibility classifier / reduced error rate for illegible tracklets | Colin | March 30th, 2025 | In-Progress |
-| Parallelized psoe + crops + STR | Colin | March 29th, 2025 | In-Progress |
+| Parallelized pose + crops + STR | Colin | March 29th, 2025 | In-Progress |
 | Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | In Progress |
 | Complete transformer implementation | Aadil, Mahmoud | March 27, 2025 | Status Unknown |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
