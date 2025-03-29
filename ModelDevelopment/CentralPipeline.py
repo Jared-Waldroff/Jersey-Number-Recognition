@@ -1008,6 +1008,7 @@ class CentralPipeline:
                 tracks = tracks[:self.num_tracklets]
             else:
                 self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
+                tracks = self.tracklets_to_process_override
 
             final_processed_data = {}
 
