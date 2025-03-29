@@ -105,7 +105,7 @@ class CentralPipeline:
                 output_processed_data_path: DataPaths,
                 common_processed_data_dir: DataPaths,
                 num_workers: int=8,
-                single_image_pipeline: bool=True,
+                single_image_pipeline: bool=False,
                 display_transformed_image_sample: bool=False,
                 num_image_samples: int=1,
                 use_cache: bool=True,
@@ -305,12 +305,13 @@ class CentralPipeline:
         # loaded_illegible_results.keys() is only the illegible ones
         #print(self.loaded_legible_results.keys())
         #print(self.loaded_illegible_results["illegible"])
-        self.legible_tracklets_list = self.loaded_legible_results.keys() - self.loaded_illegible_results["illegible"]
-        
-        # Sort the self.legible_tracklets_list
-        self.legible_tracklets_list = sorted(self.legible_tracklets_list)
-        
-        #print(f"Legible tracklets: {self.legible_tracklets_list}")
+        all_tracklets = {int(k) for k in self.loaded_legible_results.keys()}
+        illegible = {int(x) for x in self.loaded_illegible_results["illegible"]}
+        legible_set = all_tracklets - illegible
+        self.legible_tracklets_list = sorted(legible_set)
+        self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
+        self.logger.info(f"Legible  tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
+        # Convert back to strings if you require that
         
         num_messages = 0
 
@@ -423,6 +424,7 @@ class CentralPipeline:
                 ]
             
             if self.use_cache and os.path.exists(output_json):
+                self.logger.info("Output JSON exists, skipping: {output_json}")
                 return
 
             #self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
@@ -454,14 +456,16 @@ class CentralPipeline:
                 worker(tracklet)
         else:
             # Run in parallel
+            self.logger.info(f"Legible tracklets list: {', '.join(self.legible_tracklets_list)}")
             futures = []
             # Heavy duty process so do not multiply workers with the thread multiplier
             self.logger.info(f"Running pose estimation with multithreading with {self.num_workers} threads")
             if self.num_workers > 2:
                 self.logger.warning("Using a high number of workers for pose estimation may cause GPU memory issues")
                 self.logger.warning("Consider reducing the number of workers or number of images per batch for safety")
-            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
+                    self.logger.info(f"Processing tracklet {tracklet}")
                     futures.append(executor.submit(worker, tracklet))
 
                 for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
