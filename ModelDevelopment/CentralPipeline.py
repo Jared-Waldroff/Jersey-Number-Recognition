@@ -1075,6 +1075,7 @@ class CentralPipeline:
         # Mark illegible tracklets with a -1
         # For every tracklet in self.tracklets_to_process (this includes legible and non-legible: whole tracklet universe),
         # if the current tracklet is not in the results_dict, set it to -1
+        self.logger.info(f"consolidated_results results_dict: {results_dict}")
         for tracklet in self.tracklets_to_process:
             if tracklet not in results_dict:
                 results_dict[tracklet] = -1
@@ -1091,6 +1092,9 @@ class CentralPipeline:
         # Process global STR predictions (results_dict) and get analysis results.
         results_dict, self.analysis_results = helpers.process_jersey_id_predictions(self.str_global_result_file, useBias=True)
         illegible_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+        
+        self.logger.info(f"Results dict: {results_dict}")
+        self.logger.info(f"Analysis results: {self.analysis_results}")
         
         # Set the soccer ball tracks if applicable.
         self.set_ball_tracks()
