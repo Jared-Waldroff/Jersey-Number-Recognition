@@ -354,7 +354,7 @@ def __getitem__(self, idx):
     return img, img_path
 
 # run inference on a list of files
-def run(image_paths, model_path, threshold=0.5, arch='vit'):
+def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)
 
@@ -375,6 +375,7 @@ def run(image_paths, model_path, threshold=0.5, arch='vit'):
     model_ft.eval()
 
     results = []
+    raw_outputs = []
     for inputs in dataloader:
         inputs = inputs.to(device)
         with torch.no_grad():
@@ -382,19 +383,22 @@ def run(image_paths, model_path, threshold=0.5, arch='vit'):
 
             if arch == 'vit':
                 probs = torch.softmax(outputs, dim=1)  # shape: (batch_size, 2)
-                logging.info(f"Probs (thresh={threshold}): {probs.tolist()}")
                 confidence = probs
-                logging.info(f"Confidence level (thresh={threshold}): {confidence.tolist()}")
                 outputs = (confidence > threshold).float()
             else:
                 outputs = torch.sigmoid(outputs)
-                
-                # Show what outputs are in comparison to threshold:
-                logging.info(f"Outputs (thresh={threshold}): {outputs.tolist()}")
+                # Append the raw sigmoid outputs (as list) for each batch.
+                raw_outputs.append(outputs.cpu().numpy().flatten().tolist())
                 outputs = (outputs > threshold).float()
 
         preds = outputs.cpu().numpy().flatten().tolist()
         results += preds
+
+    # Flatten the list of lists into a single list
+    flat_raw_outputs = np.concatenate([np.array(batch) for batch in raw_outputs])
+    # Compute the median of the raw outputs
+    median_output = np.median(flat_raw_outputs)
+    logging.info(f"Median of raw outputs (thresh={threshold}): {median_output}")
 
     return results
 
