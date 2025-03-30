@@ -384,6 +384,7 @@ def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
     results = []
     raw_outputs = []
     raw_outputs_kept = []
+
     for inputs in dataloader:
         inputs = inputs.to(device)
         with torch.no_grad():
@@ -394,52 +395,70 @@ def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
                 confidence = probs
                 outputs = (confidence > threshold).float()
             else:
-                # outputs = torch.sigmoid(outputs)
-                # # Append the raw sigmoid outputs (as list) for each batch.
-                # raw_outputs.append(outputs.cpu().numpy().flatten().tolist())
-                # outputs = (outputs > threshold).float()
                 if threshold > 0:
-                    raw_outputs.append(outputs.cpu().numpy().flatten().tolist())
-                    outputs_satisfying = (outputs>threshold).float()
-                    # Get the numerical outputs corresponding to the indices kept (outputs_satisfying)
-                    raw_outputs_kept.append(outputs[outputs_satisfying.bool()].cpu().numpy().flatten().tolist())
-                    outputs = outputs_satisfying # Now update outputs to be the indices
+                    # Convert outputs to a NumPy array for safe indexing
+                    outputs_array = outputs.cpu().numpy()
+                    
+                    # Handle raw values, whether 0D or multi-dimensional
+                    if outputs_array.ndim == 0:
+                        # 0D array → single scalar
+                        raw_values = [outputs_array.item()]
+                    else:
+                        raw_values = outputs_array.flatten().tolist()
+                    
+                    raw_outputs.append(raw_values)
+                    
+                    # Now find values above threshold (in the NumPy array)
+                    mask = (outputs_array > threshold)
+                    if mask.ndim == 0:
+                        kept_values = [outputs_array.item()] if mask else []
+                    else:
+                        kept_values = outputs_array[mask].flatten().tolist()
+                    
+                    raw_outputs_kept.append(kept_values)
+
+                    # Finally, update `outputs` to the thresholded version for final preds
+                    outputs = torch.from_numpy((outputs_array > threshold).astype(float)).to(device)
                 else:
                     outputs = outputs.float()
 
-        preds = outputs.cpu().detach().numpy()
-        flattened_preds = preds.flatten().tolist()
-        results += flattened_preds
+        preds = outputs.cpu().detach().numpy().flatten().tolist()
+        results += preds
 
-    # Flatten the list of lists into a single list
-    if raw_outputs and any(batch for batch in raw_outputs):  # Check if the list is not empty AND contains values
+    # Now compute median / average / max for raw_outputs
+    if raw_outputs and any(batch for batch in raw_outputs):
         flat_raw_outputs = np.concatenate([np.array(batch) for batch in raw_outputs])
-        if len(flat_raw_outputs) > 0:  # Double-check the concatenated array isn't empty
+        if len(flat_raw_outputs) > 0:
             median_output = np.median(flat_raw_outputs)
             average_output = np.mean(flat_raw_outputs)
+            max_output = np.max(flat_raw_outputs)
         else:
-            median_output = 0.0
-            average_output = 0.0
+            median_output = average_output = max_output = 0.0
     else:
         flat_raw_outputs = np.array([])
-        median_output = 0.0
-        average_output = 0.0
-    
-    if raw_outputs_kept and any(batch for batch in raw_outputs_kept):  # Check if contains actual values
+        median_output = average_output = max_output = 0.0
+
+    # Compute median / average / max for the kept outputs
+    if raw_outputs_kept and any(batch for batch in raw_outputs_kept):
         flat_raw_outputs_kept = np.concatenate([np.array(batch) for batch in raw_outputs_kept])
-        if len(flat_raw_outputs_kept) > 0:  # Ensure concatenated result isn't empty
+        if len(flat_raw_outputs_kept) > 0:
             median_output_kept = np.median(flat_raw_outputs_kept)
             average_output_kept = np.mean(flat_raw_outputs_kept)
+            max_output_kept = np.max(flat_raw_outputs_kept)
         else:
-            median_output_kept = 0.0
-            average_output_kept = 0.0
+            median_output_kept = average_output_kept = max_output_kept = 0.0
     else:
         flat_raw_outputs_kept = np.array([])
-        median_output_kept = 0.0
-        average_output_kept = 0.0
-        
-    logging.info(f"Median vs. average of raw outputs (thresh={threshold}): {median_output}, {average_output}")
-    logging.info(f"Median vs. average of kept outputs (thresh={threshold}): {median_output_kept}, {average_output_kept}")
+        median_output_kept = average_output_kept = max_output_kept = 0.0
+
+    logging.info(
+        f"Median vs. average vs. max of raw outputs (thresh={threshold}): "
+        f"{median_output}, {average_output}, {max_output}"
+    )
+    logging.info(
+        f"Median vs. average vs. max of kept outputs (thresh={threshold}): "
+        f"{median_output_kept}, {average_output_kept}, {max_output_kept}"
+    )
 
     return results
 
