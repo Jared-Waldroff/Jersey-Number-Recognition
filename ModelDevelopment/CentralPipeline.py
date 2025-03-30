@@ -20,6 +20,7 @@ import logging
 import configuration as config
 import json
 import subprocess
+import threading
 import sys
 import StreamlinedPipelineScripts.clip4str as clip4str_module
 
@@ -29,7 +30,93 @@ from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUn
 from DataProcessing.Logger import CustomLogger
 import helpers
 
+def pose_worker(tracklet, output_processed_data_path, image_batch_size,
+                  pose_env, pose_home, use_cache, logging_config, pyscript):
+    """
+    Process one tracklet: build paths and run the pose.py command.
+    """
+    # Setup logging in the worker process
+    logger = logging.getLogger(f"pose_worker_{tracklet}")
+    logging.basicConfig(**logging_config)
+    
+    logger.info(f"Worker called for tracklet: {tracklet}")
+    
+    # Use absolute paths exclusively, avoid Path.cwd() which may differ in the worker process
+    cwd = os.path.abspath(os.getcwd())
+    parent_dir = os.path.dirname(os.path.dirname(cwd))
+    
+    # Build absolute paths for input/output JSON for this tracklet.
+    input_json = os.path.abspath(os.path.join(
+        output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json']))
+    output_json = os.path.abspath(os.path.join(
+        output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
 
+    if not os.path.exists(input_json):
+        logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
+        return  # Return early if input file doesn't exist
+
+    # Build absolute path to the pose.py script using the explicit parent directory
+    pose_script_path = os.path.abspath(os.path.join(
+        parent_dir, "StreamlinedPipelineScripts", "pose.py"))
+
+    # Build absolute paths for config and checkpoint files
+    pose_config_path = os.path.abspath(os.path.join(
+        parent_dir, pose_home, "configs", "body", "2d_kpt_sview_rgb_img",
+        "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
+    pose_checkpoint_path = os.path.abspath(os.path.join(
+        parent_dir, pose_home, "checkpoints", "vitpose-h.pth"))
+
+    if pyscript:
+        # Use direct path to python.exe in the specified conda environment.
+        vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", pose_env, "python.exe")
+        env_vars = os.environ.copy()
+        env_vars["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        command = [
+            vitpose_python,
+            os.path.abspath(os.path.join(Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py")),
+            os.path.join(pose_home, "configs", "body", "2d_kpt_sview_rgb_img", "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"),
+            os.path.join(pose_home, "checkpoints", "vitpose-h.pth"),
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json
+        ]
+    else:
+        logger.info("Using conda run for pose estimation")
+        command = [
+            "conda", "run", "-n", pose_env, "python", "-u",
+            pose_script_path,
+            pose_config_path,
+            pose_checkpoint_path,
+            "--img-root", "/",
+            "--json-file", input_json,
+            "--out-json", output_json,
+            "--image-batch-size", str(image_batch_size)
+        ]
+
+    if use_cache and os.path.exists(output_json):
+        logger.info(f"[{tracklet}] Output JSON exists, skipping: {output_json}")
+        return
+
+    logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                logger.info(f"[{tracklet}] {line.strip()}")
+        process.stdout.close()
+        return_code = process.wait()
+        if return_code != 0:
+            logger.error(f"[{tracklet}] Process returned non-zero exit code: {return_code}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[{tracklet}] Pose estimation failed: {e}")
+        logger.info(e.stdout)
+        logger.error(e.stderr)
 
 def process_tracklet_worker(args):
     """
@@ -60,7 +147,7 @@ def process_tracklet_worker(args):
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
          run_soccer_ball_filter, generate_features, run_filter, run_legible,
-         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size) = args
+         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size, GPU_SEMAPHORE) = args
 
         # Limit images if required.
         if num_images_per_tracklet is not None:
@@ -93,7 +180,8 @@ def process_tracklet_worker(args):
             generate_features=generate_features,
             run_filter=run_filter,
             run_legible=run_legible,
-            image_batch_size=image_batch_size
+            image_batch_size=image_batch_size,
+            GPU_SEMAPHORE=GPU_SEMAPHORE
         )
         pipeline.run_model_chain()
         return tracklet
@@ -128,7 +216,6 @@ class CentralPipeline:
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
         self.common_processed_data_dir = common_processed_data_dir
-        self.single_image_pipeline = single_image_pipeline
         self.display_transformed_image_sample = display_transformed_image_sample
         self.num_image_samples = num_image_samples
         self.use_cache = use_cache
@@ -142,7 +229,11 @@ class CentralPipeline:
         self.image_batch_size = image_batch_size
         self.num_threads_multiplier = num_threads_multiplier
         self.tracklets_to_process_override = tracklets_to_process_override
-
+        
+        # If tracklets_to_process_override is a series of ints, convert them to strings
+        if self.tracklets_to_process_override is not None and isinstance(self.tracklets_to_process_override, list):
+            self.tracklets_to_process_override = [str(x) for x in self.tracklets_to_process_override]
+        
         self.loaded_ball_tracks = None
         self.analysis_results = None
 
@@ -179,10 +270,18 @@ class CentralPipeline:
         self.DISP_IMAGE_CAP = 1
         self.PADDING = 5
         self.CONFIDENCE_THRESHOLD = 0.4
-
-        tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
-        self.tracklets_to_process = tracks[:self.num_tracklets]
-
+        
+        if self.tracklets_to_process_override is not None:
+            self.tracklets_to_process = self.tracklets_to_process_override
+        else:
+            tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
+            self.tracklets_to_process = tracks[:self.num_tracklets]
+        
+        # Limit concurrent GPU calls (example).
+        # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
+        # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
+        self.GPU_SEMAPHORE = threading.Semaphore(value=1)
+        
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
         # Legible data pattern: {tracklet_number: [list of image numbers]}
@@ -394,52 +493,71 @@ class CentralPipeline:
         self.logger.info("Generating json for pose")
         self.aggregate_legibility_results_data()
 
-        # Need to perform a set difference because loaded_legible_results.keys() is just all tracklets, but array will be empty
-        # loaded_illegible_results.keys() is only the illegible ones
-        #print(self.loaded_legible_results.keys())
-        #print(self.loaded_illegible_results["illegible"])
-        self.legible_tracklets_list = self.loaded_legible_results.keys() - self.loaded_illegible_results["illegible"]
-
-        # Sort the self.legible_tracklets_list
-        self.legible_tracklets_list = sorted(self.legible_tracklets_list)
-
-        #print(f"Legible tracklets: {self.legible_tracklets_list}")
+        all_tracklets = {int(k) for k in self.loaded_legible_results.keys()}
+        illegible = {int(x) for x in self.loaded_illegible_results["illegible"]}
+        legible_set = all_tracklets - illegible
+        self.legible_tracklets_list = sorted(legible_set)
+        self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
+        self.logger.info(f"Legible tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
 
         num_messages = 0
 
         def worker_from_loaded(key, entries):
+            """
+            Worker that processes tracklets we already have in self.loaded_legible_results.
+            Returns a list of log messages so we can print them in the main thread.
+            """
             nonlocal num_messages
-            # Compute output path for this tracklet
+            log_messages = []
             output_json = os.path.join(self.output_processed_data_path, key, config.dataset['SoccerNet']['pose_input_json'])
 
             if self.use_cache and os.path.exists(output_json):
                 num_messages += 1
                 if num_messages == 1:
-                    self.logger.info("Used cached data for pose JSON")
-                return
+                    # Instead of self.logger.info, store the message and return it.
+                    log_messages.append("Used cached data for pose JSON")
+                return log_messages
 
             # Build full paths for each image entry
             images = [os.path.join(os.getcwd(), entry) for entry in entries]
-            # Generate the JSON for this tracklet
             helpers.generate_json(images, output_json)
 
+            log_messages.append(f"Generated pose JSON for tracklet {key} with {len(images)} images.")
+            return log_messages
+
         def worker_from_dir(tracklet):
+            """
+            Worker that processes tracklets NOT in loaded_legible_results. We read images from a folder.
+            Returns a list of log messages so we can print them in the main thread.
+            """
             nonlocal num_messages
-            # For tracklets not in loaded_legible_results, we read images from the input directory.
+            log_messages = []
             output_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json'])
 
             if self.use_cache and os.path.exists(output_json):
                 num_messages += 1
                 if num_messages == 1:
-                    self.logger.info("Used cached data for pose JSON")
-                return
+                    log_messages.append("Used cached data for pose JSON")
+                return log_messages
 
             track_dir = os.path.join(self.input_data_path, tracklet)
             imgs = os.listdir(track_dir)
-            imgs = imgs[:self.num_image_samples]  # Subset to desired number of images
-            # Build full paths; assuming you want the absolute path of each image
+            
+            self.logger.info(f"Images before any subsetting: {len(imgs)}")
+
+            # Subset to desired number of images
+            if self.num_images_per_tracklet is not None:
+                log_messages.append(f"Subsetting images to {self.num_images_per_tracklet} for tracklet {tracklet}")
+                imgs = imgs[:self.num_images_per_tracklet]
+                
+            self.logger.info(f"Images after subsetting: {len(imgs)}")
+
             images = [os.path.join(os.getcwd(), track_dir, img) for img in imgs]
+            log_messages.append(f"Constructed images for tracklet {tracklet}: {','.join(images)}")
             helpers.generate_json(images, output_json)
+            log_messages.append(f"Generated pose JSON for tracklet {tracklet} with {len(images)} images.")
+
+            return log_messages
 
         futures = []
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
@@ -455,111 +573,59 @@ class CentralPipeline:
             # Use tqdm to display progress over all futures
             for future in tqdm(as_completed(futures), total=len(futures), desc="Generating pose JSON"):
                 try:
-                    future.result()
+                    worker_log_messages = future.result()  # list of strings
+                    # Now we do the actual logging on the main thread
+                    for msg in worker_log_messages:
+                        self.logger.info(msg)
                 except Exception as e:
                     self.logger.error(f"Error processing tracklet for pose json: {e}")
 
         self.logger.info("Completed generating JSON for pose")
-
-    def run_pose_estimation_model(self, series=False, pyscrippt=False):
+                
+    def run_pose_estimation_model(self, series=False, pyscript=False):
         self.logger.info("Detecting pose")
 
-        def worker(tracklet):
-            # Build absolute paths for the input and output JSON files for this tracklet
-            input_json = os.path.abspath(os.path.join(
-                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json']))
-            output_json = os.path.abspath(os.path.join(
-                self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_output_json']))
-
-            if not os.path.exists(input_json):
-                self.logger.warning(f"[{tracklet}] Input JSON not found: {input_json}")
-
-            # Build absolute path to the pose.py script
-            pose_script_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, "StreamlinedPipelineScripts", "pose.py"))
-
-            # Config and checkpoint
-            pose_config_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, config.pose_home, "configs", "body", "2d_kpt_sview_rgb_img",
-                "topdown_heatmap", "coco", "ViTPose_huge_coco_256x192.py"))
-            pose_checkpoint_path = os.path.abspath(os.path.join(
-                Path.cwd().parent.parent, config.pose_home, "checkpoints", "vitpose-h.pth"))
-
-            if pyscrippt:
-                # Get direct path to Python in vitpose environment
-                vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "vitpose", "python.exe")
-
-                # Create environment with KMP_DUPLICATE_LIB_OK set to TRUE
-                env = os.environ.copy()
-                env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-                command = [
-                    vitpose_python,  # Use direct path to Python executable instead of conda run
-                    f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-                    f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                    f"{config.pose_home}/checkpoints/vitpose-h.pth",
-                    "--img-root", "/",
-                    "--json-file", input_json,
-                    "--out-json", output_json
-                ]
-
-            else:
-                command = [
-                    "conda", "run", "-n", config.pose_env, "python", "-u",
-                    pose_script_path,
-                    pose_config_path,
-                    pose_checkpoint_path,
-                    "--img-root", "/",
-                    "--json-file", input_json,
-                    "--out-json", output_json,
-                    "--image-batch-size", str(self.image_batch_size)
-                ]
-
-            if self.use_cache and os.path.exists(output_json):
-                return
-
-            # self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
-
-            try:
-                process = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1
-                )
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        self.logger.info(f"[{tracklet}] {line.strip()}")
-                process.stdout.close()
-                return_code = process.wait()
-                if return_code != 0:
-                    self.logger.error(f"[{tracklet}] Process returned non-zero exit code: {return_code}")
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"[{tracklet}] Pose estimation failed: {e}")
-                self.logger.info(e.stdout)
-                self.logger.error(e.stderr)
-
+        # If running in series, call the worker function for each tracklet sequentially.
         if series:
-            # Run in series (safe for GPU memory)
             self.logger.info("Running pose estimation in series")
             for tracklet in tqdm(self.legible_tracklets_list, desc="Running pose estimation (series)", leave=True):
-                worker(tracklet)
+                pose_worker(tracklet,
+                                self.output_processed_data_path,
+                                self.image_batch_size,
+                                config.pose_env,
+                                config.pose_home,
+                                self.use_cache,
+                                self.logger,
+                                pyscript)
         else:
-            # Run in parallel
+            self.logger.info(f"Legible tracklets list: {', '.join(self.legible_tracklets_list)}")
             futures = []
-            # Heavy duty process so do not multiply workers with the thread multiplier
-            self.logger.info(f"Running pose estimation with multithreading with {self.num_workers} threads")
+            self.logger.info(f"Running pose estimation with multiprocessing using {self.num_workers} workers")
             if self.num_workers > 2:
-                self.logger.warning("Using a high number of workers for pose estimation may cause GPU memory issues")
-                self.logger.warning("Consider reducing the number of workers or number of images per batch for safety")
+                self.logger.warning("High number of workers may cause GPU memory issues; consider reducing workers or images per batch.")
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            
+            # Configure logging for processes
+            logging_config = {
+                'level': "INFO",
+                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                # Add other logger configuration if needed
+            }
+            
+            # NOTE: ProcessPool is 25% faster but shoes no logs. ThreadPool shows us logs so might be better to just stick to ThreadPool
             with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
-                    futures.append(executor.submit(worker, tracklet))
-
-                for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0,
-                              leave=True):
-                    pass  # tqdm progress
+                    futures.append(executor.submit(pose_worker,
+                                                tracklet,
+                                                self.output_processed_data_path,
+                                                self.image_batch_size,
+                                                config.pose_env,
+                                                config.pose_home,
+                                                self.use_cache,
+                                                logging_config,  # Pass config instead of logger object
+                                                pyscript))
+                for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
+                    pass  # Simply update progress
 
         self.logger.info("Done detecting pose")
         
@@ -788,22 +854,24 @@ class CentralPipeline:
     def evaluate_legibility_results(self, load_soccer_ball_list=False):
         self.logger.info(f"Evaluating legibility results on {len(self.tracklets_to_process)} tracklets")
 
-        # Initialize accumulators
+        # Initialize accumulators and lists for failed cases.
         total_correct = 0
         total_tracks = 0
         total_TP = 0
         total_FP = 0
         total_FN = 0
         total_TN = 0
+        all_false_positive = []  # Tracklets that are illegible in ground truth but predicted as legible.
+        all_false_negative = []  # Tracklets that are legible in ground truth but predicted as illegible.
 
         # Read the ground truth file once (shared across workers)
         with open(self.gt_data_path, 'r') as gf:
             gt_dict = json.load(gf)
 
-        # If a soccer ball list is to be used, load it once and pass to workers.
+        # If a soccer ball list is to be used, load it once.
         balls_list = []
         if load_soccer_ball_list:
-            # TODO: Change from load_soccer_ball_list to actual path
+            # TODO: Change from load_soccer_ball_list to actual path.
             with open(load_soccer_ball_list, 'r') as sf:
                 balls_json = json.load(sf)
             balls_list = balls_json.get('ball_tracks', [])
@@ -822,27 +890,38 @@ class CentralPipeline:
 
             # Skip processing if this tracklet is in the soccer ball list.
             if track in balls_list:
-                return {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0}
+                return {
+                    "correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 0,
+                    "FP_tracks": [], "FN_tracks": []
+                }
 
             # Get the ground truth value and determine predicted legibility.
             true_value = str(gt_dict[track])
             predicted_legible = self.is_track_legible(track, illegible_list, legible_tracklets)
 
-            # Initialize per-track statistics.
-            stats = {"correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 1}
+            # Initialize per-track statistics and lists for failed cases.
+            stats = {
+                "correct": 0, "TP": 0, "TN": 0, "FP": 0, "FN": 0, "total": 1,
+                "FP_tracks": [], "FN_tracks": []
+            }
 
+            # Evaluate and record misclassifications:
+            # Ground truth == '-1' means track should be illegible.
             if true_value == '-1' and not predicted_legible:
                 stats["correct"] = 1
                 stats["TN"] = 1
+            # Ground truth != '-1' means track should be legible.
             elif true_value != '-1' and predicted_legible:
                 stats["correct"] = 1
                 stats["TP"] = 1
+            # Misclassification: track is illegible in GT but predicted as legible.
             elif true_value == '-1' and predicted_legible:
                 stats["FP"] = 1
-                #self.logger.info(f"FP: {track}")
+                stats["FP_tracks"].append(track)
+            # Misclassification: track is legible in GT but predicted as illegible.
             elif true_value != '-1' and not predicted_legible:
                 stats["FN"] = 1
-                #self.logger.info(f"FN: {track}")
+                stats["FN_tracks"].append(track)
 
             return stats
 
@@ -861,6 +940,8 @@ class CentralPipeline:
                     total_FP += result["FP"]
                     total_FN += result["FN"]
                     total_tracks += result["total"]
+                    all_false_positive.extend(result.get("FP_tracks", []))
+                    all_false_negative.extend(result.get("FN_tracks", []))
                 except Exception as e:
                     self.logger.error(f"Error processing a tracklet: {e}")
 
@@ -874,6 +955,16 @@ class CentralPipeline:
         self.logger.info(f'TP={total_TP}, TN={total_TN}, FP={total_FP}, FN={total_FN}')
         self.logger.info(f"Precision={precision}, Recall={recall}")
         self.logger.info(f"F1={f1}")
+
+        # Save the failed cases (misclassified tracklets) as a JSON file.
+        failed_cases = {
+            "legible_but_marked_illegible": all_false_negative,  # Should be legible but predicted illegible.
+            "illegible_but_marked_legible": all_false_positive   # Should be illegible but predicted legible.
+        }
+        failed_cases_file = os.path.join(self.common_processed_data_dir, 'failed_legibility_cases.json')
+        with open(failed_cases_file, 'w') as f:
+            json.dump(failed_cases, f)
+        self.logger.info(f"Saved failed legibility cases to: {failed_cases_file}")
         
     def consolidated_results(self, image_dir, dict, illegible_path, soccer_ball_list=None):
         if not soccer_ball_list is None or soccer_ball_list == []:
@@ -1034,7 +1125,6 @@ class CentralPipeline:
             else:
                 self.logger.info(f"Tracklet override applied. Using provided tracklets: {', '.join(self.tracklets_to_process_override)}")
                 tracks = self.tracklets_to_process_override
-                self.tracklets_to_process = tracks
 
             final_processed_data = {}
 
@@ -1082,7 +1172,7 @@ class CentralPipeline:
                 )
 
                 # Set working subset for this batch
-                self.tracklets_to_process = list(data_dict.keys())
+                batch_tracklets_to_process = list(data_dict.keys())
 
                 # Initialize files that rely on self.tracklets_to_process
                 self.init_soccer_ball_filter_data_file()
@@ -1090,7 +1180,9 @@ class CentralPipeline:
 
                 # Phase 1: Process each tracklet in parallel for this batch
                 tasks = []
-                for tracklet in self.tracklets_to_process:
+                #self.logger.info(f"DEBUG data dict: {batch_tracklets_to_process}")
+                for tracklet in batch_tracklets_to_process:
+                    #self.logger.info(f"DEBUG tracklet to int: {int(tracklet)}")
                     images = data_dict[tracklet]
                     args = (
                         tracklet,
@@ -1098,7 +1190,7 @@ class CentralPipeline:
                         self.output_processed_data_path,
                         self.use_cache,
                         self.input_data_path,
-                        self.tracklets_to_process,
+                        batch_tracklets_to_process,
                         self.common_processed_data_dir,
                         run_soccer_ball_filter,
                         generate_features,
@@ -1107,7 +1199,8 @@ class CentralPipeline:
                         self.display_transformed_image_sample,
                         self.suppress_logging,
                         self.num_images_per_tracklet,
-                        self.image_batch_size
+                        self.image_batch_size,
+                        self.GPU_SEMAPHORE
                     )
                     tasks.append(args)
 

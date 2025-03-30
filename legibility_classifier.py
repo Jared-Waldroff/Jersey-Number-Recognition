@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 from jersey_number_dataset import JerseyNumberLegibilityDataset, UnlabelledJerseyNumberLegibilityDataset, TrackletLegibilityDataset
 from networks import LegibilityClassifier, LegibilitySimpleClassifier, LegibilityClassifier34, LegibilityClassifierTransformer
 
+import logging
+
 import time
 import copy
 import argparse
@@ -342,48 +344,57 @@ def test_model(model, subset, result_path=None):
 
     return epoch_acc
 
+def wrap_state_dict_keys(state_dict, prefix='model'):
+    return {f'{prefix}.{k}': v for k, v in state_dict.items()}
+
+def __getitem__(self, idx):
+    img_path = self.image_paths[idx]
+    img = Image.open(img_path).convert('RGB')
+    img = self.transform(img)
+    return img, img_path
 
 # run inference on a list of files
-def run(image_paths, model_path, threshold=0.5, arch='resnet18'):
-    # setup data
+def run(image_paths, model_path, threshold=0.5, arch='vit'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4,
-                                                  shuffle=False, num_workers=4)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    cudnn.benchmark = True
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)
 
-    #load model
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # Load model
     state_dict = torch.load(model_path, map_location=device)
+
     if arch == 'resnet18':
         model_ft = LegibilityClassifier()
     elif arch == 'vit':
-        model_ft = LegibilityClassifierTransformer()
+        model_ft = LegibilityClassifierTransformer(num_classes=1) # Used as a binary classifier
     else:
         model_ft = LegibilityClassifier34()
 
-    if hasattr(state_dict, '_metadata'):
-        del state_dict._metadata
-    model_ft.load_state_dict(state_dict)
+    state_dict = wrap_state_dict_keys(state_dict)
     model_ft = model_ft.to(device)
     model_ft.eval()
 
-    # run classifier
     results = []
     for inputs in dataloader:
-        # print(f"input and label sizes:{len(inputs), len(labels)}")
         inputs = inputs.to(device)
+        with torch.no_grad():
+            outputs = model_ft(inputs)
 
-        # zero the parameter gradients
-        torch.set_grad_enabled(False)
-        outputs = model_ft(inputs)
+            if arch == 'vit':
+                probs = torch.softmax(outputs, dim=1)  # shape: (batch_size, 2)
+                logging.info(f"Probs (thresh={threshold}): {probs.tolist()}")
+                confidence = probs
+                logging.info(f"Confidence level (thresh={threshold}): {confidence.tolist()}")
+                outputs = (confidence > threshold).float()
+            else:
+                outputs = torch.sigmoid(outputs)
+                
+                # Show what outputs are in comparison to threshold:
+                logging.info(f"Outputs (thresh={threshold}): {outputs.tolist()}")
+                outputs = (outputs > threshold).float()
 
-        if threshold > 0:
-            outputs = (outputs>threshold).float()
-        else:
-            outputs = outputs.float()
-        preds = outputs.cpu().detach().numpy()
-        flattened_preds = preds.flatten().tolist()
-        results += flattened_preds
+        preds = outputs.cpu().numpy().flatten().tolist()
+        results += preds
 
     return results
 

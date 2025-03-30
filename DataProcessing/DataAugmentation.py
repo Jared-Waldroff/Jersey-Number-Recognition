@@ -193,29 +193,81 @@ class DataAugmentation:
             augmented_data[track] = track_aug
         return augmented_data
 
+class CLAHEEnhancer:
+    def __init__(self, clip_limit=2.0, tile_grid_size=(8, 8),
+                 mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
+                 std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
+        """
+        Args:
+            clip_limit: Threshold for contrast limiting.
+            tile_grid_size: Size of grid for histogram equalization.
+            mean, std: Normalization parameters used for the model.
+        """
+        self.clip_limit = clip_limit
+        self.tile_grid_size = tile_grid_size
+        self.mean = mean
+        self.std = std
+
+    def denormalize(self, tensor):
+        return tensor * self.std + self.mean
+
+    def normalize(self, tensor):
+        return (tensor - self.mean) / self.std
+
+    def enhance_with_clahe(self, image_tensor):
+        """
+        Applies CLAHE enhancement to a normalized image tensor (C, H, W).
+        Returns a normalized tensor with enhanced contrast.
+        """
+        # Convert from torch.Tensor to NumPy image
+        img = self.denormalize(image_tensor).clamp(0, 1).numpy()  # (C, H, W)
+        img = np.transpose(img, (1, 2, 0))  # (H, W, C)
+        img = (img * 255).astype(np.uint8)
+
+        # Convert to LAB color space (better for CLAHE)
+        lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+
+        # Apply CLAHE to the L-channel
+        clahe = cv2.createCLAHE(clipLimit=self.clip_limit, tileGridSize=self.tile_grid_size)
+        cl = clahe.apply(l)
+
+        # Merge the channels and convert back to RGB
+        limg = cv2.merge((cl, a, b))
+        enhanced_img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+
+        # Back to tensor
+        enhanced_img = torch.tensor(enhanced_img / 255., dtype=torch.float32).permute(2, 0, 1)
+        return self.normalize(enhanced_img)
 
 class ImageEnhancement:
     """
     Our algo is designed so that we train our images on tough scenarios.
     At runtime, we want to help our model out by enhancing the images.
     This means using properties from DataAugmentation to our advantage at runtime.
-    Aspects include: increasing contrast, brightness and sharpness.
+    Aspects include: increasing contrast, brightness and sharpness or CLAHE.
     """
 
-    def __init__(self, 
-                 brightness_factor=1.2, 
-                 contrast_factor=1.2, 
-                 sharpness_factor=1.5,
+    def __init__(self,
+                 brightness_factor=1.3,
+                 contrast_factor=1.5,
+                 sharpness_factor=2,
+                 use_clahe=False,
+                 clahe_clip_limit=2.0,
+                 clahe_tile_grid_size=(8, 8),
                  mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
                  std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
         """
         Args:
-            brightness_factor: Factor to enhance brightness (values >1 increase brightness).
+            brightness_factor: Factor to enhance brightness.
             contrast_factor: Factor to enhance contrast.
             sharpness_factor: Factor to enhance sharpness.
-            mean: Normalization mean used originally.
-            std: Normalization std used originally.
+            use_clahe: If True, uses CLAHE instead of PIL enhancements.
+            clahe_clip_limit: CLAHE contrast limit.
+            clahe_tile_grid_size: CLAHE tile grid size.
+            mean, std: Normalization stats used by the model.
         """
+        self.use_clahe = use_clahe
         self.brightness_factor = brightness_factor
         self.contrast_factor = contrast_factor
         self.sharpness_factor = sharpness_factor
@@ -226,43 +278,44 @@ class ImageEnhancement:
         self.to_pil = transforms.ToPILImage()
         self.to_tensor = transforms.ToTensor()
 
+        # Optional CLAHE enhancer
+        if self.use_clahe:
+            self.clahe_enhancer = CLAHEEnhancer(
+                clip_limit=clahe_clip_limit,
+                tile_grid_size=clahe_tile_grid_size,
+                mean=mean,
+                std=std
+            )
+
     def denormalize(self, tensor):
-        """
-        Reverts normalization: tensor * std + mean.
-        """
         return tensor * self.std + self.mean
 
     def normalize(self, tensor):
-        """
-        Applies normalization: (tensor - mean) / std.
-        """
         return (tensor - self.mean) / self.std
 
     def enhance_image(self, image):
         """
-        Full-pass of all favourable operations.
-        Enhances an image tensor (C, H, W) by increasing brightness, contrast, and sharpness.
-        Assumes the input image is normalized.
-        Returns a normalized tensor with enhanced properties.
+        Enhances a normalized image tensor (C, H, W).
+        If use_clahe=True, applies CLAHE; otherwise uses PIL-based enhancements.
+        Returns a normalized enhanced image tensor.
         """
-        # Denormalize so that pixel values are in [0, 1]
-        denorm = self.denormalize(image)
-        # Convert to PIL Image
+        if self.use_clahe:
+            return self.clahe_enhancer.enhance_with_clahe(image)
+
+        # === PIL-based enhancement path ===
+        denorm = self.denormalize(image).clamp(0, 1)
         pil_img = self.to_pil(denorm)
-        
-        # Enhance brightness, contrast, and sharpness using PIL's ImageEnhance.
+
+        # Enhance brightness, contrast, and sharpness
         enhancer = ImageEnhance.Brightness(pil_img)
         pil_img = enhancer.enhance(self.brightness_factor)
-        
+
         enhancer = ImageEnhance.Contrast(pil_img)
         pil_img = enhancer.enhance(self.contrast_factor)
-        
+
         enhancer = ImageEnhance.Sharpness(pil_img)
         pil_img = enhancer.enhance(self.sharpness_factor)
-        
-        # Convert back to tensor
+
+        # Convert back to tensor and re-normalize
         enhanced_tensor = self.to_tensor(pil_img)
-        # Re-normalize the tensor so that it matches the training distribution.
-        enhanced_tensor = self.normalize(enhanced_tensor)
-        
-        return enhanced_tensor
+        return self.normalize(enhanced_tensor)

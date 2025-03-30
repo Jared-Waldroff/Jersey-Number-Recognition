@@ -36,6 +36,7 @@ class ImageBatchPipeline:
                 generate_features: bool,
                 run_filter: bool,
                 run_legible: bool,
+                GPU_SEMAPHORE,
                 display_transformed_image_sample: bool=False,
                 suppress_logging: bool=False,
                 use_cache: bool=True,
@@ -55,6 +56,7 @@ class ImageBatchPipeline:
         self.run_filter=run_filter
         self.run_legible=run_legible
         self.image_batch_size = image_batch_size
+        self.GPU_SEMAPHORE = GPU_SEMAPHORE
         self.image_feature_transform = ImageFeatureTransformPipeline(
           run_soccer_ball_filter=run_soccer_ball_filter,
           generate_features=generate_features,
@@ -67,7 +69,8 @@ class ImageBatchPipeline:
           output_tracklet_processed_data_path=self.output_tracklet_processed_data_path,
           suppress_logging=self.suppress_logging,
           use_cache=self.use_cache,
-          image_batch_size=self.image_batch_size)
+          image_batch_size=self.image_batch_size,
+          GPU_SEMAPHORE=self.GPU_SEMAPHORE)
         self.data_preprocessor = DataPreProcessing(suppress_logging=True) # No need for double logging as CentralPipeline already instantiates it
         self.logger = CustomLogger().get_logger()
         
@@ -121,7 +124,7 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=False):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         # DO NOT USE: Caching is now controlled in CentralPipeline
@@ -134,6 +137,8 @@ class ImageBatchPipeline:
         #     if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
         #         self.logger.info("Using existing cache for legibility classifier. Skipping.")
         #         return
+        
+        current_tracklet_input_data_path = os.path.join(self.input_data_path, self.current_tracklet_number)
         
         if use_filtered:
             if filter == 'sim': # Do not use
@@ -151,8 +156,8 @@ class ImageBatchPipeline:
             with open(path_to_filter_results, 'r') as f:
                 filtered = json.load(f)
 
+        updated_tracklets = []
         if exclude_balls:
-            updated_tracklets = []
             soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
             
             # Check if the soccer_ball_list even exists first, and if not, skip
@@ -172,19 +177,21 @@ class ImageBatchPipeline:
             images = filtered[self.current_tracklet_number]
         else:
             # Otherwise no keep list, just all of them
-            images = os.listdir(self.input_data_path)
+            self.logger.info(f"Using all images in tracklet {self.current_tracklet_number} for legibility classification.")
+            images = [img for img in os.listdir(current_tracklet_input_data_path) if not img.startswith('.')]
         
         # images_full_path is either filtered down now or just all images
         images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
 
         # Ship these images over to the legibility classifier
-        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
+        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.65)
         legible = list(np.nonzero(track_results))[0]
         
         if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls):
             self.logger.info(f"Tracklet {self.current_tracklet_number} is illegible.")
             self.illegible_tracklets.append(self.current_tracklet_number)
         else:
+            self.logger.info(f"Tracklet {self.current_tracklet_number} is legible.")
             legible_images = [images_full_path[i] for i in legible]
             self.legible_tracklets[self.current_tracklet_number] = legible_images
                 

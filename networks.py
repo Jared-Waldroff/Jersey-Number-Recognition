@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
+import timm
 
 class JerseyNumberClassifier(nn.Module):
 
@@ -98,22 +99,17 @@ class LegibilityClassifier34(nn.Module):
         x = F.sigmoid(x)
         return x
 
-# ResNet18 based model for binary classification
+# VIT model for binary classification
 class LegibilityClassifierTransformer(nn.Module):
-    def __init__(self, train=False,  finetune=False):
+    def __init__(self, num_classes=10):
         super().__init__()
-        self.model_ft = models.vit_b_16(pretrained=True)
-        if finetune:
-            for param in self.model_ft.parameters():
-                param.requires_grad = False
-        num_ftrs = self.model_ft.heads.head.in_features
-        self.model_ft.heads.head = nn.Linear(num_ftrs, 1)
-        self.model_ft.heads.head.requires_grad = True
-
+        # Create the timm ViT model directly
+        self.model = timm.create_model("timm/vit_base_patch16_224.orig_in21k_ft_in1k", pretrained=False)
+        # Replace the head to match your number of classes
+        self.model.head = nn.Linear(self.model.head.in_features, num_classes)
+    
     def forward(self, x):
-        x = self.model_ft(x)
-        x = F.sigmoid(x)
-        return x
+        return self.model(x)
 
 # Classifier Model
 class LegibilitySimpleClassifier(nn.Module):
