@@ -161,7 +161,7 @@ def process_tracklet_worker(args):
             tracklet_feature_file = os.path.join(output_processed_data_path, tracklet, tracklet_data_file_stub)
             if os.path.exists(tracklet_feature_file):
                 os.remove(tracklet_feature_file)
-            logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
+                logger.info(f"Removed cached tracklet feature file (use_cache: False): {tracklet_feature_file}")
 
         # Instantiate and run the image batch pipeline for this tracklet.
         pipeline = ImageBatchPipeline(
