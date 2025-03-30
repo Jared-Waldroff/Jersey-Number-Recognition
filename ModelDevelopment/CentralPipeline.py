@@ -1150,7 +1150,7 @@ class CentralPipeline:
                 self.logger.info("Using CLIP4STR model for scene text recognition")
                 self.run_clip4str_model()  # Use our new method
             else:
-                self.logger.info("Using original model for scene text recognition")
+                self.logger.info("Using PARSEQ2 model for scene text recognition")
                 self.run_str_model()  # Use the original method
         if run_combine:
             self.combine_results()
