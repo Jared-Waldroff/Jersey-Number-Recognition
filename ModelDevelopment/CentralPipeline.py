@@ -744,6 +744,8 @@ class CentralPipeline:
         
     def run_str_model(self):
         self.logger.info("Predicting numbers")
+        self.aggregate_legibility_results_data()
+        self.set_legibility_arrays()
         
         # Ensure correct working directory.        
         os.chdir(str(Path.cwd().parent.parent))
@@ -767,7 +769,7 @@ class CentralPipeline:
                 "conda", "run", "-n", config.str_env, "python",
                 os.path.join("StreamlinedPipelineScripts", "str.py"),
                 DataPaths.STR_MODEL.value,
-                f"--data_root={processed_data_path}",
+                f"--data_root={processed_data_path_crops}",
                 "--batch_size=1",
                 "--inference",
                 "--result_file", result_file,
@@ -787,7 +789,7 @@ class CentralPipeline:
         # Use a ThreadPoolExecutor to run the STR inference in parallel for each tracklet.
         futures = {}
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR on tracklets", leave=True):
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching STR on tracklets", leave=True):
                 futures[executor.submit(run_str_for_tracklet, tracklet)] = tracklet
 
             # Process results as they complete.
@@ -807,11 +809,10 @@ class CentralPipeline:
         located under self.common_processed_data_dir.
         Uses multithreading to speed up file IO.
         """
-
         # 1) Define paths and check for cache
         global_str_results_path = os.path.join(
             self.common_processed_data_dir,
-            results_file_name  # or "pose_results.json" if you prefer
+            results_file_name  # e.g., "str_results.json"
         )
         
         self.str_result_file = global_str_results_path
@@ -824,21 +825,17 @@ class CentralPipeline:
             return  # Skip re-aggregation altogether
 
         self.logger.info("Aggregating STR results (cache not used or global file missing).")
-        # Initialize an internal dictionary to hold merged data
-        # (you can store in self.loaded_str_results if you like)
+        # Initialize an empty dictionary to hold merged data
         aggregated_results = {}
 
         # 2) Load & merge results in parallel
         def load_str_file_for_tracklet(tracklet):
             """
             Loads the per-tracklet STR results JSON and returns a dict.
-            For example, each file might look like:
+            Each file is expected to have structure like:
                 {
-                    "327": [
-                        "path/to/327_117.jpg",
-                        "path/to/327_118.jpg",
-                        ...
-                    ]
+                    "1064_226.jpg": {"label": "29", "confidence": [...], "raw": [...], "logits": [...]},
+                    ...
                 }
             """
             processed_tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
@@ -860,6 +857,8 @@ class CentralPipeline:
 
         # Use a ThreadPoolExecutor to read files in parallel
         futures = {}
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from tqdm import tqdm
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
             for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR file loads", leave=True):
                 futures[executor.submit(load_str_file_for_tracklet, tracklet)] = tracklet
@@ -869,19 +868,16 @@ class CentralPipeline:
                 tracklet = futures[future]
                 try:
                     loaded_data = future.result()  # dict from that tracklet
-                    # For each key in the per-tracklet results, merge into aggregated_results
                     self.logger.info(f"Raw loaded data for tracklet {tracklet}: {loaded_data}")
-                    for tracklet_number, file_list in loaded_data.items():
-                        self.logger.info(f"Loaded data: {tracklet_number}: {file_list}")
-                        if tracklet_number not in aggregated_results:
-                            aggregated_results[tracklet_number] = []
-                        aggregated_results[tracklet_number].extend(file_list)
+                    # Merge the per-tracklet dictionary into the global one.
+                    for image_filename, image_data in loaded_data.items():
+                        aggregated_results[image_filename] = image_data
                 except Exception as e:
                     self.logger.error(f"Error merging data for tracklet {tracklet}: {e}")
 
         # 3) Write the aggregated STR results to the global file
         with open(global_str_results_path, 'w') as f_global:
-            json.dump(aggregated_results, f_global)
+            json.dump(aggregated_results, f_global, indent=4)
 
         self.logger.info(f"Saved global STR results to: {global_str_results_path}")
         # Optionally store them in self.loaded_str_results
