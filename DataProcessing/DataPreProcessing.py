@@ -72,9 +72,7 @@ def _worker_fn(args):
     return track_name, features
 
 class DataPreProcessing:
-    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
-        self.display_transformed_image_sample = display_transformed_image_sample
-        self.num_image_samples = num_image_samples
+    def __init__(self, display_transformed_image_sample: bool=False, suppress_logging: bool=False):
         self.suppress_logging = suppress_logging
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -165,7 +163,7 @@ class DataPreProcessing:
                 # Enhance using your module
                 img_tensor = self.image_enhancement.enhance_image(img_tensor)
 
-                # === 🖼️ SHOW FIRST IMAGE AFTER ENHANCEMENT ===
+                # --- SHOW FIRST IMAGE AFTER ENHANCEMENT ---
                 if show_first:
                     denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
                     img_np = denorm_img.detach().cpu().permute(1, 2, 0).numpy()  # (H, W, C)

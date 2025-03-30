@@ -201,7 +201,6 @@ class CentralPipeline:
                  num_workers: int = 8,
                  single_image_pipeline: bool = True,
                  display_transformed_image_sample: bool = False,
-                 num_image_samples: int = 1,
                  use_cache: bool = True,
                  suppress_logging: bool = False,
                  num_tracklets: int = None,
@@ -217,7 +216,6 @@ class CentralPipeline:
         self.output_processed_data_path = output_processed_data_path
         self.common_processed_data_dir = common_processed_data_dir
         self.display_transformed_image_sample = display_transformed_image_sample
-        self.num_image_samples = num_image_samples
         self.use_cache = use_cache
         self.suppress_logging = suppress_logging
         self.loaded_legible_results = None
@@ -239,7 +237,6 @@ class CentralPipeline:
 
         self.data_preprocessor = DataPreProcessing(
             display_transformed_image_sample=self.display_transformed_image_sample,
-            num_image_samples=self.num_image_samples,
             suppress_logging=self.suppress_logging
         )
         self.image_enhancer = ImageEnhancement()
@@ -757,8 +754,7 @@ class CentralPipeline:
                 )
                 crops_destination_dir = os.path.join(
                     tracklet_processed_output_dir,
-                    config.dataset['SoccerNet']['crops_folder'],
-                    'imgs'
+                    config.dataset['SoccerNet']['crops_folder']
                 )
 
                 # Ensure directory structure is ready
@@ -852,7 +848,7 @@ class CentralPipeline:
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
         # Path to images directory and result file
-        crops_dir = os.path.join(self.image_dir, 'imgs')
+        crops_dir = os.path.join(self.image_dir)
         result_file = self.str_result_file
 
         # Run CLIP4STR inference using the parallel module
@@ -1150,7 +1146,7 @@ class CentralPipeline:
                       run_combine=True,
                       run_eval=True,
                       use_clip4str=True,
-                      pyscrippt=True):
+                      pyscript=True):
         self.logger.info("Running the SoccerNet pipeline.")
         
         if generate_features or run_filter or run_legible:
@@ -1282,7 +1278,7 @@ class CentralPipeline:
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed
             self.init_json_for_pose_estimator()
-            self.run_pose_estimation_model(pyscrippt=pyscrippt)
+            self.run_pose_estimation_model(pyscript=pyscript)
             self.aggregate_pose()
         if run_crops:
             self.run_crops_model()
