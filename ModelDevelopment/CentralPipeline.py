@@ -696,65 +696,102 @@ class CentralPipeline:
 
     def generate_crops(self, json_file, crops_destination_dir, all_legible=None):
         """
-        Parallelized cropping function.
+        Serial cropping function (no internal parallelization).
         
         Arguments:
-        - json_file: Path to the JSON file containing pose results.
-        - crops_destination_dir: Directory where cropped images will be saved.
-        - all_legible: Optionally, a precomputed list of image basenames that are legible.
-        
+            - json_file: Path to the JSON file containing pose results.
+            - crops_destination_dir: Directory where cropped images will be saved.
+            - all_legible: Optionally, a precomputed list of image basenames that are legible.
+            
         Returns:
-        - skipped: Aggregated dictionary of skipped counts per track.
-        - saved: Aggregated list of image names that were successfully processed.
+            - (aggregated_skipped, aggregated_saved)
         """
-        # Compute all_legible if not provided.
+        # If not provided, gather up all 'legible' entries from self.loaded_legible_results
         if all_legible is None:
             all_legible = []
             for key in self.loaded_legible_results.keys():
                 for entry in self.loaded_legible_results[key]:
                     all_legible.append(os.path.basename(entry))
 
+        # Read the pose_results
         with open(json_file, 'r') as f:
             data = json.load(f)
             all_poses = data["pose_results"]
 
-        # Prepare containers for aggregated results.
         aggregated_skipped = {}
         aggregated_saved = []
         total_misses = 0
 
-        # Parallel processing.
-        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            futures = [
-                executor.submit(self.process_crop, entry, all_legible, crops_destination_dir)
-                for entry in all_poses
-            ]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating crops"):
-                result = future.result()
-                if result is None:
-                    continue
-                # Aggregate skipped counts.
-                for tr, count in result["skipped"].items():
-                    aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
-                # Aggregate saved images.
-                aggregated_saved.extend(result["saved"])
-                total_misses += result["miss"]
+        # Simple serial loop over each pose entry
+        for entry in tqdm(all_poses, desc="Generating crops"):
+            result = self.process_crop(entry, all_legible, crops_destination_dir)
+            if result is None:
+                continue
 
-        print(f"skipped {total_misses} out of {len(all_poses)}")
+            # Accumulate "skipped" dictionary
+            for tr, count in result["skipped"].items():
+                aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
+
+            # Accumulate "saved" list
+            aggregated_saved.extend(result["saved"])
+            total_misses += result["miss"]
+
+        print(f"Skipped {total_misses} out of {len(all_poses)} for {json_file}")
         return aggregated_skipped, aggregated_saved
 
     def run_crops_model(self):
-        output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
-
-        self.logger.info("Generate crops")
-        crops_destination_dir = os.path.join(self.common_processed_data_dir,
-                                             config.dataset['SoccerNet']['crops_folder'], 'imgs')
-        Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        # self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
+        """
+        Runs the crops model in parallel across all tracklets.
+        """
+        # Make sure we have the latest legibility results before spawning threads
         self.aggregate_legibility_results_data()
-        # self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
-        self.generate_crops(output_json, crops_destination_dir)
-        self.logger.info("Done generating crops")
+
+        # Collect futures for each tracklet
+        futures = []
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching tracklets", leave=True):
+                tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
+                output_json = os.path.join(
+                    tracklet_processed_output_dir,
+                    config.dataset['SoccerNet']['pose_output_json']
+                )
+                crops_destination_dir = os.path.join(
+                    tracklet_processed_output_dir,
+                    config.dataset['SoccerNet']['crops_folder'],
+                    'imgs'
+                )
+
+                # Ensure directory structure is ready
+                Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
+
+                # Submit generate_crops as a job in the thread pool
+                futures.append(
+                    executor.submit(
+                        self.generate_crops,
+                        json_file=output_json,
+                        crops_destination_dir=crops_destination_dir
+                    )
+                )
+
+            # Now aggregate the results (skipped/saved) as they complete
+            aggregated_skipped = {}
+            aggregated_saved = []
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", leave=True):
+                try:
+                    skipped, saved = future.result()
+                    # Merge the skipped dictionary counts
+                    for tr, cnt in skipped.items():
+                        aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + cnt
+                    # Extend the saved
+                    aggregated_saved.extend(saved)
+                except Exception as e:
+                    self.logger.error(f"Error in crop generation job: {e}")
+
+        # Optionally log or return aggregated results after all tracklets
+        self.logger.info(f"Done generating crops in parallel for {len(self.legible_tracklets_list)} tracklets.")
+        self.logger.info(f"Aggregated skipped: {aggregated_skipped}")
+        self.logger.info(f"Total saved: {len(aggregated_saved)}")
         
     def run_str_model(self):
         self.logger.info("Predicting numbers")
