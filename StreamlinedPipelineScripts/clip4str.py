@@ -7,6 +7,12 @@ import json
 import sys
 import subprocess
 from pathlib import Path
+import shutil
+import concurrent.futures
+from tqdm import tqdm
+import threading
+
+#GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 
 def parse_output(stdout_text):
@@ -191,6 +197,101 @@ def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretr
             logger.warning(f"Created empty results file: {result_file}")
 
         return False
+
+
+def run_parallel_clip4str_inference(python_path, read_script_path, model_path, clip_pretrained_path,
+                                    images_dir, result_file, logger, num_workers=4, batch_size=50,
+                                    env=None, gpu_semaphore=None):
+    """Parallel version of CLIP4STR inference with GPU resource management"""
+
+    # 1. Get all image files - this can happen outside the GPU lock
+    image_files = [f for f in os.listdir(images_dir) if f.endswith(('.jpg', '.jpeg', '.png'))]
+
+    # 2. Split into batches - use smaller batches for better memory management
+    #adjusted_batch_size = min(batch_size, 32)  # Cap at 32 images per batch for memory safety
+    batches = [image_files[i:i + batch_size] for i in range(0, len(image_files), batch_size)]
+
+    logger.info(f"Processing {len(image_files)} images in {len(batches)} batches of {batch_size}")
+
+    # 3. Create temp directories for each batch - still no need for GPU
+    temp_dirs = [os.path.join(os.path.dirname(result_file), f"clip4str_temp_{i}")
+                 for i in range(len(batches))]
+    for temp_dir in temp_dirs:
+        os.makedirs(temp_dir, exist_ok=True)
+
+    # 4. Define worker function that applies the GPU semaphore only around inference
+    def process_batch(batch_idx, image_batch, temp_dir):
+        # Create temp image directory (non-GPU operation)
+        batch_img_dir = os.path.join(temp_dir, "imgs")
+        os.makedirs(batch_img_dir, exist_ok=True)
+
+        # Copy images to batch directory (non-GPU operation)
+        for img in image_batch:
+            shutil.copy(os.path.join(images_dir, img), os.path.join(batch_img_dir, img))
+
+        # Prepare for inference
+        batch_result_file = os.path.join(temp_dir, "results.json")
+
+        # Only lock the GPU during the actual model inference
+        with gpu_semaphore:
+            logger.info(f"Batch {batch_idx}: Acquired GPU lock, running inference on {len(image_batch)} images")
+            success = run_clip4str_inference(
+                python_path=python_path,
+                read_script_path=read_script_path,
+                model_path=model_path,
+                clip_pretrained_path=clip_pretrained_path,
+                images_dir=batch_img_dir,
+                result_file=batch_result_file,
+                logger=logger,
+                env=env
+            )
+            logger.info(f"Batch {batch_idx}: Released GPU lock")
+
+        # Process results after releasing the lock (non-GPU operation)
+        if success and os.path.exists(batch_result_file):
+            with open(batch_result_file, 'r') as f:
+                return json.load(f)
+        return {}
+
+    # 5. Process batches in parallel with managed GPU access
+    results_dict = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        future_to_batch = {
+            executor.submit(process_batch, i, batch, temp_dirs[i]): i
+            for i, batch in enumerate(batches)
+        }
+
+        for future in tqdm(concurrent.futures.as_completed(future_to_batch),
+                           total=len(batches), desc="Processing CLIP4STR batches"):
+            batch_results = future.result()
+            results_dict.update(batch_results)
+            # Manual cleanup after each batch completes
+            import gc
+            gc.collect()
+            if torch_available:
+                import torch
+                torch.cuda.empty_cache()  # Explicitly clear CUDA cache
+
+    # 6. Save combined results (non-GPU operation)
+    os.makedirs(os.path.dirname(result_file), exist_ok=True)
+    with open(result_file, 'w') as f:
+        json.dump(results_dict, f, indent=2)
+
+    # 7. Clean up temp directories (non-GPU operation)
+    for temp_dir in temp_dirs:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return True
+
+
+# Check if torch is available for memory management
+torch_available = False
+try:
+    import torch
+
+    torch_available = True
+except ImportError:
+    pass
 
 
 if __name__ == "__main__":

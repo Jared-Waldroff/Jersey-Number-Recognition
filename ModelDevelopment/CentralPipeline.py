@@ -1,3 +1,4 @@
+import threading
 from enum import Enum
 from pathlib import Path
 import time
@@ -27,6 +28,7 @@ from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformatio
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
 import helpers
+
 
 
 def process_tracklet_worker(args):
@@ -121,6 +123,7 @@ class CentralPipeline:
                  num_threads_multiplier: int = 3,
                  tracklets_to_process_override: list = None,
                  ):
+        self.gpu_semaphore = None
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
@@ -719,10 +722,10 @@ class CentralPipeline:
 
     def run_clip4str_model(self):
         """
-        Run the CLIP4STR model for scene text recognition.
+        Run the CLIP4STR model for scene text recognition in parallel.
         Uses the clip4str.py module to handle the processing.
         """
-        self.logger.info("Predicting numbers using CLIP4STR model")
+        self.logger.info("Predicting numbers using parallel CLIP4STR model")
         # Use the built-in string conversion function explicitly
         base_dir = __builtins__['str'](Path.cwd().parent.parent)  # Get base project directory
         os.chdir(base_dir)  # ensure correct working directory
@@ -749,8 +752,13 @@ class CentralPipeline:
         crops_dir = os.path.join(self.image_dir, 'imgs')
         result_file = self.str_result_file
 
-        # Run CLIP4STR inference using the module
-        success = clip4str_module.run_clip4str_inference(
+        # Run CLIP4STR inference using the parallel module
+        num_parallel_workers = self.num_workers
+        batch_size = self.image_batch_size
+
+        self.gpu_semaphore = threading.Semaphore(value=2)
+
+        success = clip4str_module.run_parallel_clip4str_inference(
             python_path=python_exe,
             read_script_path=read_script_path,
             model_path=model_path,
@@ -758,10 +766,13 @@ class CentralPipeline:
             images_dir=crops_dir,
             result_file=result_file,
             logger=self.logger,
-            env=env
+            num_workers=num_parallel_workers,
+            batch_size=batch_size,
+            env=env,
+            gpu_semaphore=self.gpu_semaphore
         )
 
-        self.logger.info("Done predicting numbers with CLIP4STR")
+        self.logger.info("Done predicting numbers with parallel CLIP4STR")
 
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
