@@ -81,7 +81,7 @@ def setup_pose(root):
 
     os.chdir(root)
     if not env_name in get_conda_envs():
-        make_conda_env(env_name, libs="python=3.8")
+        make_conda_env(env_name, libs="python=3.9")
 
         os.system(f"conda run --live-stream -n {env_name} conda install --name {env_name} pip")
         os.system(f"conda run --live-stream -n {env_name} pip install  mmcv-full==1.4.8 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html")

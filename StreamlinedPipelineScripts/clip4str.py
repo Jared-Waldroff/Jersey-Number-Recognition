@@ -1,306 +1,234 @@
 #!/usr/bin/env python3
-# CLIP4STR Scene Text Recognition
-# Implementation based on original str.py but using CLIP4STR model with digit biasing for jersey numbers
+# CLIP4STR processing module
+# Handles processing output from the CLIP4STR model
 
-import argparse
-import string
-import sys
-from dataclasses import dataclass
-from typing import List
-from pathlib import Path
 import os
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
-
-import torch
-from torch import nn, optim
-from torch.nn import functional as F
-
-# Adjust paths for CLIP4STR
-ROOT = os.path.dirname(os.path.abspath(__file__))
-# Add the root directory to the path to allow imports from strhub
-sys.path.append(ROOT)
-
-# First check if we can use CUDA
-use_cuda = torch.cuda.is_available()
-device = torch.device('cuda' if use_cuda else 'cpu')
-print(f"Using device: {device}")
-
-# Try different import paths based on what's available
-try:
-    # Try direct import first
-    from strhub.data.module import SceneTextDataModule
-    from strhub.models.utils import load_from_checkpoint, parse_model_args
-
-    print("Using direct strhub imports")
-except ImportError:
-    try:
-        # Try with str.CLIP4STR prefix
-        from str.CLIP4STR.strhub.data.module import SceneTextDataModule
-        from str.CLIP4STR.strhub.models.utils import load_from_checkpoint, parse_model_args
-        from str.CLIP4STR.strhub.models.vl_str.system import VL4STR
-
-        print("Using str.CLIP4STR strhub imports")
-    except ImportError:
-        # Try with just str prefix
-        from str.strhub.data.module import SceneTextDataModule
-        from str.strhub.models.utils import load_from_checkpoint, parse_model_args
-
-        print("Using str.strhub imports")
-
-from PIL import Image
+import sys
+import subprocess
+from pathlib import Path
 
 
-@dataclass
-class Result:
-    dataset: str
-    num_samples: int
-    accuracy: float
-    ned: float
-    confidence: float
-    label_length: float
-
-
-def process_image_str(filename, data_root, model, img_size, digit_indices=None):
+def parse_output(stdout_text):
     """
-    Worker function to process a single image with CLIP4STR.
-    Includes digit biasing for jersey numbers.
+    Parse the output from the CLIP4STR model.
+    First tries to extract JSON results, then falls back to text parsing if needed.
+
+    Args:
+        stdout_text (str): The stdout output from running the CLIP4STR model
+
+    Returns:
+        dict: A dictionary of results in the format expected by process_jersey_id_predictions
     """
-    image_path = os.path.join(data_root, 'imgs', filename)
-    try:
-        image = Image.open(image_path).convert('RGB')
-    except Exception as e:
-        print(f"Error opening {image_path}: {e}")
-        return None
+    # Try to extract JSON results first
+    json_start = stdout_text.find("JSON_RESULTS_BEGIN")
+    json_end = stdout_text.find("JSON_RESULTS_END")
 
-    # Get transformation from the SceneTextDataModule
-    transform = SceneTextDataModule.get_transform(img_size)
-    image = transform(image)
-    image = image.unsqueeze(0)  # add batch dimension
-
-    # Run inference in no_grad mode for efficiency
-    with torch.no_grad():
-        # Forward pass with CLIP4STR model
-        logits = model.forward(image.to(model.device))
-
-        # Apply digit biasing like in read.py
-        biased_logits = torch.ones_like(logits) * -1000.0
-
-        # If we have digit indices, use them to bias toward digits
-        if digit_indices:
-            biased_logits[:, :, digit_indices] = logits[:, :, digit_indices]
-        else:
-            biased_logits = logits
-
-        # Convert to probabilities
-        probs = biased_logits.softmax(-1)
-
-        # Decode predictions
-        raw_pred, prob_values = model.tokenizer.decode(probs)
-        jersey_number = raw_pred[0]
-
-        # Ensure only digits (fallback)
-        if not all(c.isdigit() for c in jersey_number):
-            jersey_number = ''.join([c for c in jersey_number if c.isdigit()])
-            if not jersey_number:
-                jersey_number = "-1"
-
-        # Extract confidence
+    if json_start >= 0 and json_end > json_start:
+        # Extract JSON text
+        json_text = stdout_text[json_start + len("JSON_RESULTS_BEGIN"):json_end].strip()
         try:
-            confidence = prob_values[0].cpu().detach().numpy().squeeze().tolist()
-        except Exception:
-            confidence = None
+            return json.loads(json_text)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON output: {e}. Falling back to text parsing.")
 
-    return {filename: {
-        'label': jersey_number,
-        'raw_pred': raw_pred[0],
-        'confidence': confidence,
-        'logits': biased_logits.cpu().detach().numpy()[0].tolist() if biased_logits is not None else None
-    }}
+    # Fall back to original parsing if no JSON found or if JSON parsing failed
+    results_dict = {}
 
-
-def run_inference(model, data_root, result_file, img_size):
-    """
-    Parallelized inference for STR with CLIP4STR.
-    Includes digit biasing logic from read.py.
-    """
-    file_dir = os.path.join(data_root, 'imgs')
-    filenames = sorted(os.listdir(file_dir))
-    results = {}
-
-    # Define digits that can be detected
-    digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-
-    # Find the indices of digits in the model's charset
-    digit_indices = []
-    if hasattr(model.tokenizer, 'charset'):
-        charset = model.tokenizer.charset
-        for i, char in enumerate(charset):
-            if char in digits:
-                # Account for special tokens in the vocabulary
-                if hasattr(model, 'bos_id'):
-                    digit_indices.append(i + 3)  # +3 for bos, eos, pad tokens
-                else:
-                    digit_indices.append(i)
-
-    print(f"Found {len(digit_indices)} digit indices in charset: {digit_indices}")
-
-    # Define number of worker threads (adjust as needed)
-    num_workers = 8
-
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # Submit a task for each filename.
-        future_to_filename = {
-            executor.submit(process_image_str, filename, data_root, model, img_size, digit_indices): filename
-            for filename in filenames
-        }
-        for future in tqdm(as_completed(future_to_filename),
-                           total=len(future_to_filename),
-                           desc="CLIP4STR Inference"):
-            filename = future_to_filename[future]
+    for line in stdout_text.splitlines():
+        # Only process lines that look like image file predictions
+        if line and ('.jpg:' in line or '.jpeg:' in line or '.png:' in line):
             try:
-                res = future.result()
-                if res is not None:
-                    results.update(res)
+                parts = line.split(':', 1)
+                filename = parts[0].strip()
+                rest = parts[1].strip()
+
+                # Extract confidence if present in the new format
+                confidence_array = None
+                if "→ Confidence:" in rest:
+                    conf_part = rest.split("→ Confidence:", 1)[1].strip()
+                    try:
+                        # Try to parse as list
+                        confidence_array = json.loads(conf_part)
+                    except json.JSONDecodeError:
+                        # If that fails, use old default
+                        pass
+
+                # Extract jersey number - the part after "Jersey Number:" if it exists
+                jersey_number = "-1"  # Default
+                if "→ Jersey Number:" in rest:
+                    jersey_part = rest.split("→ Jersey Number:", 1)[1]
+                    if "→" in jersey_part:
+                        jersey_number = jersey_part.split("→", 1)[0].strip()
+                    else:
+                        jersey_number = jersey_part.strip()
+                else:
+                    # Fallback - just extract digits
+                    digits = ''.join([c for c in rest if c.isdigit()])
+                    if digits:
+                        jersey_number = digits
+
+                # Generate confidence values if not extracted above
+                if confidence_array is None:
+                    if jersey_number.isdigit() and jersey_number != "-1":
+                        # Create an array with 0.9 confidence for each character
+                        confidence_array = [0.9] * len(jersey_number)
+                    else:
+                        # For invalid predictions, use a single low confidence value
+                        confidence_array = [0.1]
+
+                # Store in the format expected by process_jersey_id_predictions
+                results_dict[filename] = {
+                    "label": jersey_number,
+                    "confidence": confidence_array
+                }
+
             except Exception as e:
-                print(f"Error processing {filename}: {e}")
+                print(f"Error parsing line: {line}, error: {e}")
 
-    # Write results to JSON file.
-    with open(result_file, 'w') as f:
-        json.dump(results, f)
-
-    print(f"Results saved to {result_file}")
+    return results_dict
 
 
-def print_results_table(results: List[Result], file=None):
-    w = max(map(len, map(getattr, results, ['dataset'] * len(results))))
-    w = max(w, len('Dataset'), len('Combined'))
-    print('| {:<{w}} | # samples | Accuracy | 1 - NED | Confidence | Label Length |'.format('Dataset', w=w), file=file)
-    print('|:{:-<{w}}:|----------:|---------:|--------:|-----------:|-------------:|'.format('----', w=w), file=file)
-    c = Result('Combined', 0, 0, 0, 0, 0)
-    for res in results:
-        c.num_samples += res.num_samples
-        c.accuracy += res.num_samples * res.accuracy
-        c.ned += res.num_samples * res.ned
-        c.confidence += res.num_samples * res.confidence
-        c.label_length += res.num_samples * res.label_length
-        print(f'| {res.dataset:<{w}} | {res.num_samples:>9} | {res.accuracy:>8.2f} | {res.ned:>7.2f} '
-              f'| {res.confidence:>10.2f} | {res.label_length:>12.2f} |', file=file)
-    c.accuracy /= c.num_samples
-    c.ned /= c.num_samples
-    c.confidence /= c.num_samples
-    c.label_length /= c.num_samples
-    print('|-{:-<{w}}-|-----------|----------|---------|------------|--------------|'.format('----', w=w), file=file)
-    print(f'| {c.dataset:<{w}} | {c.num_samples:>9} | {c.accuracy:>8.2f} | {c.ned:>7.2f} '
-          f'| {c.confidence:>10.2f} | {c.label_length:>12.2f} |', file=file)
+def log_sample_results(results_dict, logger, sample_count=5):
+    """
+    Log only the count of results, not the samples themselves.
+    """
+    if results_dict:
+        logger.info(f"Successfully processed {len(results_dict)} predictions")
+    else:
+        logger.warning("No results were produced by the model")
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('checkpoint', help="CLIP4STR model checkpoint path")
-    parser.add_argument('--data_root', default='data')
-    parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--num_workers', type=int, default=4)
-    parser.add_argument('--cased', action='store_true', default=False, help='Cased comparison')
-    parser.add_argument('--punctuation', action='store_true', default=False, help='Check punctuation')
-    parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
-    parser.add_argument('--inference', action='store_true', default=False,
-                        help='Run inference and store prediction results')
-    parser.add_argument('--result_file', default='outputs/preds.json')
-    parser.add_argument('--model_path', default=None, help="Explicit model path")
-    parser.add_argument('--model_type', default=None, help="Model type")
-    args, unknown = parser.parse_known_args()
-    kwargs = parse_model_args(unknown)
+def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretrained_path,
+                           images_dir, result_file, logger, env=None):
+    """
+    Run the CLIP4STR model for inference.
 
-    # Configure charset based on arguments - for jersey numbers, default to digits only
-    charset_test = string.digits
-    if args.cased:
-        charset_test += string.ascii_uppercase
-    if args.punctuation:
-        charset_test += string.punctuation
-    kwargs.update({'charset_test': charset_test})
-    print(f'Additional keyword arguments: {kwargs}')
+    Args:
+        python_path (str): Path to the Python executable
+        read_script_path (str): Path to the read.py script
+        model_path (str): Path to the CLIP4STR model
+        clip_pretrained_path (str): Path to the pretrained CLIP model
+        images_dir (str): Path to the directory containing images
+        result_file (str): Path to save the results
+        logger: Logger for output
+        env (dict): Environment variables
 
-    # If model_path is provided, use that instead of checkpoint
-    model_path = args.model_path if args.model_path else args.checkpoint
-    print(f"Loading CLIP4STR model from {model_path}")
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not os.path.exists(model_path):
+        logger.error(f"CLIP4STR model not found: {model_path}")
+        return False
 
-    # Determine if we're loading a VL4STR model
-    is_vl4str = False
-    if args.model_type == 'vl4str' or "clip4str_huge" in model_path or "vl4str" in model_path:
-        is_vl4str = True
+    if not os.path.exists(clip_pretrained_path):
+        logger.error(f"Pretrained CLIP model not found: {clip_pretrained_path}")
+        return False
+
+    # Set default environment if none provided
+    if env is None:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+    # Command to run the read.py script
+    command = [
+        python_path,
+        read_script_path,
+        model_path,
+        f"--images_path={images_dir}",
+        "--device=cuda",
+        f"--clip_pretrained={clip_pretrained_path}"
+    ]
+
+    logger.info(f"Running command: {' '.join(command)}")
 
     try:
-        if is_vl4str:
-            # Try different ways to load a VL4STR model
-            try:
-                from str.CLIP4STR.strhub.models.vl_str.system import VL4STR
-                print(f"Loading as VL4STR model using str.CLIP4STR import path")
-                model = VL4STR.load_from_checkpoint(model_path, **kwargs).eval().to(args.device)
-            except (ImportError, AttributeError):
-                try:
-                    from strhub.models.vl_str.system import VL4STR
-                    print(f"Loading as VL4STR model using direct import path")
-                    model = VL4STR.load_from_checkpoint(model_path, **kwargs).eval().to(args.device)
-                except (ImportError, AttributeError):
-                    print(f"Falling back to generic load_from_checkpoint")
-                    model = load_from_checkpoint(model_path, **kwargs).eval().to(args.device)
-        else:
-            model = load_from_checkpoint(model_path, **kwargs).eval().to(args.device)
-    except RuntimeError as e:
-        if "CUDA" in str(e) and args.device == 'cuda':
-            print(f"CUDA error encountered. Falling back to CPU.")
-            args.device = 'cpu'
-            model = load_from_checkpoint(model_path, **kwargs).eval().to(args.device)
-        else:
-            raise
+        # Capture stdout but don't display it
+        result = subprocess.run(command,
+                                stdout=subprocess.PIPE,  # Capture but don't print
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                check=True,
+                                encoding='utf-8',
+                                errors='replace',
+                                env=env)
 
-    hp = model.hparams
+        # Only log the stderr (warnings/errors) if any
+        if result.stderr:
+            logger.error(result.stderr)
 
-    # Run inference mode if specified
-    if args.inference:
-        print(f"Running inference on images in {args.data_root}")
-        run_inference(model, args.data_root, args.result_file, hp.img_size)
-        return
+        # Parse the output (we need result.stdout for this)
+        results_dict = parse_output(result.stdout)
 
-    # If not in inference mode, set up for evaluation
-    datamodule = SceneTextDataModule(args.data_root, '_unused_', hp.img_size, 2, hp.charset_train,
-                                     hp.charset_test, args.batch_size, args.num_workers, False)
+        # Make sure the output directory exists
+        os.makedirs(os.path.dirname(result_file), exist_ok=True)
 
-    # Run evaluation on dataset
-    test_set = ['JerseyNumbers']
-    results = {}
-    max_width = max(map(len, test_set))
+        # Save results as JSON
+        with open(result_file, 'w') as f:
+            json.dump(results_dict, f, indent=2)
 
-    for name, dataloader in datamodule.test_dataloaders(test_set).items():
-        total = 0
-        correct = 0
-        ned = 0
-        confidence = 0
-        label_length = 0
+        logger.info(f"Saved {len(results_dict)} jersey number predictions to {result_file}")
 
-        for imgs, labels in tqdm(iter(dataloader), desc=f'{name:>{max_width}}'):
-            res = model.test_step((imgs.to(model.device), labels), -1)['output']
-            total += res.num_samples
-            correct += res.correct
-            ned += res.ned
-            confidence += res.confidence
-            label_length += res.label_length
+        # Log a sample of results
+        log_sample_results(results_dict, logger)
 
-        accuracy = 100 * correct / total
-        mean_ned = 100 * (1 - ned / total)
-        mean_conf = 100 * confidence / total
-        mean_label_length = label_length / total
-        results[name] = Result(name, total, accuracy, mean_ned, mean_conf, mean_label_length)
-        print(f"accuracy:{accuracy}, mean_conf:{mean_conf}")
+        # We've removed this to keep terminal clean
+        # logger.info(result.stdout)
 
-    with open(model_path + '.log.txt', 'w') as f:
-        for out in [f, sys.stdout]:
-            print(f'Evaluation results:', file=out)
-            print_results_table([results[s] for s in test_set], out)
-            print('\n', file=out)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running CLIP4STR model: {e}")
+        logger.info(f"STDOUT: {e.stdout}" if e.stdout else "No stdout output")
+        logger.error(f"STDERR: {e.stderr}" if e.stderr else "No stderr output")
+
+        # Create an empty results file if it doesn't exist
+        if not os.path.exists(result_file):
+            os.makedirs(os.path.dirname(result_file), exist_ok=True)
+            with open(result_file, 'w') as f:
+                json.dump({}, f)
+            logger.warning(f"Created empty results file: {result_file}")
+
+        return False
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    # This is for testing the module directly
+    import argparse
+    import logging
+
+    # Set up logging
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s [%(levelname)s] %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+    logger = logging.getLogger()
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Run CLIP4STR inference")
+    parser.add_argument("--model", required=True, help="Path to CLIP4STR model")
+    parser.add_argument("--clip_pretrained", required=True, help="Path to pretrained CLIP model")
+    parser.add_argument("--images_dir", required=True, help="Path to images directory")
+    parser.add_argument("--result_file", required=True, help="Path to save results")
+    parser.add_argument("--python_path", help="Path to Python executable")
+    args = parser.parse_args()
+
+    # Use system Python if not specified
+    python_path = args.python_path or sys.executable
+
+    # Get path to read.py in the same directory as the model
+    model_dir = os.path.dirname(args.model)
+    read_script_path = os.path.join(os.path.dirname(model_dir), "read.py")
+
+    # Run inference
+    success = run_clip4str_inference(
+        python_path=python_path,
+        read_script_path=read_script_path,
+        model_path=args.model,
+        clip_pretrained_path=args.clip_pretrained,
+        images_dir=args.images_dir,
+        result_file=args.result_file,
+        logger=logger
+    )
+
+    sys.exit(0 if success else 1)
