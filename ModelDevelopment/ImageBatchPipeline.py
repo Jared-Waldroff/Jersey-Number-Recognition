@@ -95,30 +95,22 @@ class ImageBatchPipeline:
     def save_json_results(self, path: str, results, task: str):
         self.logger.info(f"Saving {task} to: {path}")
 
-        # Read existing data or initialize it
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {}
-
+        # Instead of loading existing data, always start with a fresh dict.
         if task == "legible_tracklets":
             # Legible data pattern: {tracklet_number: [list of image numbers]}
-            data[self.current_tracklet_number] = results.get(self.current_tracklet_number, [])
+            data = {self.current_tracklet_number: results.get(self.current_tracklet_number, [])}
         elif task == "illegible_tracklets":
             # Illegible data pattern: {'illegible': [list of tracklet numbers]}
-            if 'illegible' not in data:
-                data['illegible'] = []
             # Assume 'results' is a tracklet number or a list of them
             if isinstance(results, list):
-                data['illegible'].extend(results)
+                data = {'illegible': results}
             else:
-                data['illegible'].append(results)
+                data = {'illegible': [results]}
         else:
             # Generic save: overwrite entire content with new results
             data = results
 
-        # Write updated data back to the file
+        # Write new data to the file, overwriting any existing content.
         with open(path, "w") as outfile:
             json.dump(data, outfile, indent=4)
 
@@ -184,7 +176,7 @@ class ImageBatchPipeline:
         images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
 
         # Ship these images over to the legibility classifier
-        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.65)
+        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
         legible = list(np.nonzero(track_results))[0]
         
         if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls):

@@ -354,7 +354,7 @@ def __getitem__(self, idx):
     return img, img_path
 
 # run inference on a list of files
-def run(image_paths, model_path, threshold=0.5, arch='vit'):
+def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)
 
@@ -369,12 +369,22 @@ def run(image_paths, model_path, threshold=0.5, arch='vit'):
         model_ft = LegibilityClassifierTransformer(num_classes=1) # Used as a binary classifier
     else:
         model_ft = LegibilityClassifier34()
-
-    state_dict = wrap_state_dict_keys(state_dict)
-    model_ft = model_ft.to(device)
-    model_ft.eval()
+        
+    if arch == 'vit':
+        state_dict = wrap_state_dict_keys(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
+    else:
+        if hasattr(state_dict, '_metadata'):
+            del state_dict._metadata
+        model_ft.load_state_dict(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
 
     results = []
+    raw_outputs = []
+    raw_outputs_kept = []
+
     for inputs in dataloader:
         inputs = inputs.to(device)
         with torch.no_grad():
@@ -382,19 +392,73 @@ def run(image_paths, model_path, threshold=0.5, arch='vit'):
 
             if arch == 'vit':
                 probs = torch.softmax(outputs, dim=1)  # shape: (batch_size, 2)
-                logging.info(f"Probs (thresh={threshold}): {probs.tolist()}")
                 confidence = probs
-                logging.info(f"Confidence level (thresh={threshold}): {confidence.tolist()}")
                 outputs = (confidence > threshold).float()
             else:
-                outputs = torch.sigmoid(outputs)
-                
-                # Show what outputs are in comparison to threshold:
-                logging.info(f"Outputs (thresh={threshold}): {outputs.tolist()}")
-                outputs = (outputs > threshold).float()
+                if threshold > 0:
+                    # Convert outputs to a NumPy array for safe indexing
+                    outputs_array = outputs.cpu().numpy()
+                    
+                    # Handle raw values, whether 0D or multi-dimensional
+                    if outputs_array.ndim == 0:
+                        # 0D array → single scalar
+                        raw_values = [outputs_array.item()]
+                    else:
+                        raw_values = outputs_array.flatten().tolist()
+                    
+                    raw_outputs.append(raw_values)
+                    
+                    # Now find values above threshold (in the NumPy array)
+                    mask = (outputs_array > threshold)
+                    if mask.ndim == 0:
+                        kept_values = [outputs_array.item()] if mask else []
+                    else:
+                        kept_values = outputs_array[mask].flatten().tolist()
+                    
+                    raw_outputs_kept.append(kept_values)
 
-        preds = outputs.cpu().numpy().flatten().tolist()
+                    # Finally, update `outputs` to the thresholded version for final preds
+                    outputs = torch.from_numpy((outputs_array > threshold).astype(float)).to(device)
+                else:
+                    outputs = outputs.float()
+
+        preds = outputs.cpu().detach().numpy().flatten().tolist()
         results += preds
+
+    # Now compute median / average / max for raw_outputs
+    if raw_outputs and any(batch for batch in raw_outputs):
+        flat_raw_outputs = np.concatenate([np.array(batch) for batch in raw_outputs])
+        if len(flat_raw_outputs) > 0:
+            median_output = np.median(flat_raw_outputs)
+            average_output = np.mean(flat_raw_outputs)
+            max_output = np.max(flat_raw_outputs)
+        else:
+            median_output = average_output = max_output = 0.0
+    else:
+        flat_raw_outputs = np.array([])
+        median_output = average_output = max_output = 0.0
+
+    # Compute median / average / max for the kept outputs
+    if raw_outputs_kept and any(batch for batch in raw_outputs_kept):
+        flat_raw_outputs_kept = np.concatenate([np.array(batch) for batch in raw_outputs_kept])
+        if len(flat_raw_outputs_kept) > 0:
+            median_output_kept = np.median(flat_raw_outputs_kept)
+            average_output_kept = np.mean(flat_raw_outputs_kept)
+            max_output_kept = np.max(flat_raw_outputs_kept)
+        else:
+            median_output_kept = average_output_kept = max_output_kept = 0.0
+    else:
+        flat_raw_outputs_kept = np.array([])
+        median_output_kept = average_output_kept = max_output_kept = 0.0
+
+    logging.info(
+        f"Median vs. average vs. max of raw outputs (thresh={threshold}): "
+        f"{median_output}, {average_output}, {max_output}"
+    )
+    logging.info(
+        f"Median vs. average vs. max of kept outputs (thresh={threshold}): "
+        f"{median_output_kept}, {average_output_kept}, {max_output_kept}"
+    )
 
     return results
 
