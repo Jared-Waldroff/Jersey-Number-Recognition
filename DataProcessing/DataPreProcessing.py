@@ -159,6 +159,7 @@ class DataPreProcessing:
                 )(img_tensor)
 
                 # Enhance using the custom image enhancement module
+                denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
                 img_tensor = self.image_enhancement.enhance_image(img_tensor)
 
                 # If val_transforms expects PIL input, convert back from tensor
