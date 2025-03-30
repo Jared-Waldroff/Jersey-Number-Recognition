@@ -832,7 +832,7 @@ class CentralPipeline:
                 }
             """
             processed_tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
-            str_result_path = os.path.join(processed_tracklet_dir, results_file_name)  
+            str_result_path = os.path.join(processed_tracklet_dir, self.results_file_name)  
             # or whatever your STR file is named
 
             # If the file doesn't exist or is empty, return an empty dict
@@ -1053,7 +1053,7 @@ class CentralPipeline:
             json.dump(failed_cases, f)
         self.logger.info(f"Saved failed legibility cases to: {failed_cases_file}")
         
-    def consolidated_results(self, image_dir, results_dict, illegible_path, soccer_ball_list=None):
+    def consolidated_results(self, results_dict, illegible_path, soccer_ball_list=None):
         # If a soccer ball list is provided, update predictions for those tracks.
         if soccer_ball_list is not None and soccer_ball_list != []:
             self.logger.info("Consolidating results: Using soccer ball list")
@@ -1072,20 +1072,15 @@ class CentralPipeline:
             if str(entry) not in results_dict:
                 results_dict[str(entry)] = -1
 
-        # Get list of images in this tracklet's crops folder.
-        try:
-            local_files = os.listdir(image_dir)
-        except Exception as e:
-            self.logger.error(f"Error listing directory {image_dir}: {e}")
-            local_files = []
-
-        # For each image in this tracklet, if it is missing in the results_dict, mark it as -1.
-        for filename in local_files:
-            if filename not in results_dict:
-                results_dict[filename] = -1
+        # Mark illegible tracklets with a -1
+        # For every tracklet in self.tracklets_to_process (this includes legible and non-legible: whole tracklet universe),
+        # if the current tracklet is not in the results_dict, set it to -1
+        for tracklet in self.tracklets_to_process:
+            if tracklet not in results_dict:
+                results_dict[tracklet] = -1
             else:
                 # If already present, force integer conversion (if needed).
-                results_dict[filename] = int(results_dict[filename])
+                results_dict[tracklet] = int(results_dict[tracklet])
         return results_dict
         
     def combine_results(self):
@@ -1099,17 +1094,7 @@ class CentralPipeline:
         
         # Set the soccer ball tracks if applicable.
         self.set_ball_tracks()
-        
-        # Start with a copy of the global STR predictions.
-        consolidated_global = results_dict.copy()
-        
-        # Iterate over each tracklet to check its local crops folder.
-        for tracklet in self.legible_tracklets_list:
-            local_crops_dir = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['crops_folder'])
-            # Update the consolidated predictions with this tracklet's local files.
-            consolidated_global = self.consolidated_results(local_crops_dir, consolidated_global, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
-        
-        self.consolidated_dict = consolidated_global
+        self.consolidated_dict = self.consolidated_results(results_dict, illegible_path, soccer_ball_list=self.loaded_ball_tracks)
         
         # Save final results as JSON.
         final_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['final_result'])
@@ -1355,13 +1340,13 @@ class CentralPipeline:
             self.run_crops_model()
             
         if use_clip4str:
-            results_file_name = config.dataset['SoccerNet']['clpip4str_results_file']
+            self.results_file_name = config.dataset['SoccerNet']['clpip4str_results_file']
         else:
-            results_file_name = config.dataset['SoccerNet']['str_results_file']
+            self.results_file_name = config.dataset['SoccerNet']['str_results_file']
             
         self.str_global_result_file = os.path.join(
             self.common_processed_data_dir,
-            results_file_name  # e.g., "str_results.json"
+            self.results_file_name  # e.g., "str_results.json"
         )
             
         if run_str:
@@ -1371,7 +1356,7 @@ class CentralPipeline:
             else:
                 self.logger.info("Using PARSEQ2 model for scene text recognition")
                 self.run_str_model()  # Use the original method
-            self.aggregate_str_results(results_file_name)
+            self.aggregate_str_results()
         if run_combine:
             self.combine_results()
         if run_eval:
