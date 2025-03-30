@@ -315,8 +315,44 @@ class CentralPipeline:
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
 
     def aggregate_pose(self):
-        pass
+        """Aggregates pose results from individual tracklets into a global file."""
+        self.logger.info("Aggregating pose results")
 
+        # Path for the global pose results
+        global_pose_results_path = os.path.join(self.common_processed_data_dir,
+                                                config.dataset['SoccerNet']['pose_output_json'])
+
+        # If cache is enabled and global file exists, we can skip aggregation
+        if self.use_cache and os.path.exists(global_pose_results_path):
+            self.logger.info("Using cached global pose results")
+            return
+
+        # Initialize empty list to hold all pose results
+        all_pose_results = []
+
+        # Process each legible tracklet
+        for tracklet in self.legible_tracklets_list:
+            tracklet_pose_path = os.path.join(self.output_processed_data_path,
+                                              tracklet,
+                                              config.dataset['SoccerNet']['pose_output_json'])
+
+            # Skip if the tracklet doesn't have pose results
+            if not os.path.exists(tracklet_pose_path):
+                continue
+
+            # Read the tracklet's pose results
+            with open(tracklet_pose_path, 'r') as f:
+                tracklet_pose_data = json.load(f)
+
+            # Append to our global list
+            if 'pose_results' in tracklet_pose_data:
+                all_pose_results.extend(tracklet_pose_data['pose_results'])
+
+        # Write the aggregated results to the global file
+        with open(global_pose_results_path, 'w') as f:
+            json.dump({"pose_results": all_pose_results}, f)
+
+        self.logger.info(f"Saved aggregated pose results to: {global_pose_results_path}")
     def set_ball_tracks(self):
         global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
 
@@ -450,11 +486,15 @@ class CentralPipeline:
                 # Get direct path to Python in vitpose environment
                 vitpose_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "vitpose", "python.exe")
 
+                # Create environment with KMP_DUPLICATE_LIB_OK set to TRUE
+                env = os.environ.copy()
+                env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
                 command = [
                     vitpose_python,  # Use direct path to Python executable instead of conda run
                     f"{os.path.join(Path.cwd().parent.parent, 'StreamlinedPipelineScripts', 'pose.py')}",
-                    "configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                    "checkpoints/vitpose-h.pth",
+                    f"{config.pose_home}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
+                    f"{config.pose_home}/checkpoints/vitpose-h.pth",
                     "--img-root", "/",
                     "--json-file", input_json,
                     "--out-json", output_json
@@ -464,8 +504,8 @@ class CentralPipeline:
                 command = [
                     "conda", "run", "-n", config.pose_env, "python", "-u",
                     pose_script_path,
-                    "configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/ViTPose_huge_coco_256x192.py",
-                    "checkpoints/vitpose-h.pth",
+                    pose_config_path,
+                    pose_checkpoint_path,
                     "--img-root", "/",
                     "--json-file", input_json,
                     "--out-json", output_json,
@@ -475,7 +515,7 @@ class CentralPipeline:
             if self.use_cache and os.path.exists(output_json):
                 return
 
-            #self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
+            # self.logger.info(f"[{tracklet}] Running command: {' '.join(command)}")
 
             try:
                 process = subprocess.Popen(
@@ -514,7 +554,8 @@ class CentralPipeline:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(worker, tracklet))
 
-                for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0, leave=True):
+                for _ in tqdm(as_completed(futures), total=len(futures), desc="Running pose estimation", position=0,
+                              leave=True):
                     pass  # tqdm progress
 
         self.logger.info("Done detecting pose")
@@ -1101,6 +1142,7 @@ class CentralPipeline:
             # CRITICAL: Pose processing should occur after legibility results are computed
             self.init_json_for_pose_estimator()
             self.run_pose_estimation_model(pyscrippt=pyscrippt)
+            self.aggregate_pose()
         if run_crops:
             self.run_crops_model()
         if run_str:
