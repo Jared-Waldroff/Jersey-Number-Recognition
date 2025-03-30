@@ -259,8 +259,8 @@ class CentralPipeline:
         self.device = torch.device('cuda' if self.use_cuda else 'cpu')
         self.logger.info(f"Using device: {self.device}")
 
+        # TODO: Deprecate this
         self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
-        self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
 
         # Constants
         self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
@@ -755,7 +755,7 @@ class CentralPipeline:
             processed_data_path_crops = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
             
             # Construct the path to the result file.
-            result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_result_file'])
+            result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_results_file'])
             
             # If caching is enabled and the result file already exists, skip running the command.
             if self.use_cache and os.path.exists(result_file):
@@ -801,8 +801,91 @@ class CentralPipeline:
 
         self.logger.info("Done predicting numbers")
         
-    def aggregate_str_results(self):
-        pass
+    def aggregate_str_results(self, results_file_name):
+        """
+        Aggregates per-tracklet STR results into one global file (str_results.json)
+        located under self.common_processed_data_dir.
+        Uses multithreading to speed up file IO.
+        """
+
+        # 1) Define paths and check for cache
+        global_str_results_path = os.path.join(
+            self.common_processed_data_dir,
+            results_file_name  # or "pose_results.json" if you prefer
+        )
+        
+        self.str_result_file = global_str_results_path
+        
+        # If use_cache is True and the global STR results file already exists, skip
+        if self.use_cache and os.path.exists(global_str_results_path):
+            self.logger.info(f"Reading STR results from cache: {global_str_results_path}")
+            with open(global_str_results_path, 'r') as f_global:
+                self.loaded_str_results = json.load(f_global)
+            return  # Skip re-aggregation altogether
+
+        self.logger.info("Aggregating STR results (cache not used or global file missing).")
+        # Initialize an internal dictionary to hold merged data
+        # (you can store in self.loaded_str_results if you like)
+        aggregated_results = {}
+
+        # 2) Load & merge results in parallel
+        def load_str_file_for_tracklet(tracklet):
+            """
+            Loads the per-tracklet STR results JSON and returns a dict.
+            For example, each file might look like:
+                {
+                    "327": [
+                        "path/to/327_117.jpg",
+                        "path/to/327_118.jpg",
+                        ...
+                    ]
+                }
+            """
+            processed_tracklet_dir = os.path.join(self.output_processed_data_path, tracklet)
+            str_result_path = os.path.join(processed_tracklet_dir, results_file_name)  
+            # or whatever your STR file is named
+
+            # If the file doesn't exist or is empty, return an empty dict
+            if not os.path.exists(str_result_path):
+                self.logger.warning(f"No STR results file for tracklet {tracklet} at {str_result_path}")
+                return {}
+
+            try:
+                with open(str_result_path, 'r') as f_local:
+                    data = json.load(f_local)
+                return data
+            except Exception as e:
+                self.logger.error(f"Error reading {str_result_path}: {e}")
+                return {}
+
+        # Use a ThreadPoolExecutor to read files in parallel
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR file loads", leave=True):
+                futures[executor.submit(load_str_file_for_tracklet, tracklet)] = tracklet
+
+            # Merge each tracklet’s data as it completes
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Merging STR results", leave=True):
+                tracklet = futures[future]
+                try:
+                    loaded_data = future.result()  # dict from that tracklet
+                    # For each key in the per-tracklet results, merge into aggregated_results
+                    self.logger.info(f"Raw loaded data for tracklet {tracklet}: {loaded_data}")
+                    for tracklet_number, file_list in loaded_data.items():
+                        self.logger.info(f"Loaded data: {tracklet_number}: {file_list}")
+                        if tracklet_number not in aggregated_results:
+                            aggregated_results[tracklet_number] = []
+                        aggregated_results[tracklet_number].extend(file_list)
+                except Exception as e:
+                    self.logger.error(f"Error merging data for tracklet {tracklet}: {e}")
+
+        # 3) Write the aggregated STR results to the global file
+        with open(global_str_results_path, 'w') as f_global:
+            json.dump(aggregated_results, f_global)
+
+        self.logger.info(f"Saved global STR results to: {global_str_results_path}")
+        # Optionally store them in self.loaded_str_results
+        self.loaded_str_results = aggregated_results
 
     def run_clip4str_model(self):
         """
@@ -834,7 +917,6 @@ class CentralPipeline:
 
         # Path to images directory and result file
         crops_dir = os.path.join(self.image_dir)
-        result_file = self.str_result_file
 
         # Run CLIP4STR inference using the parallel module
         num_parallel_workers = self.num_workers
@@ -848,7 +930,7 @@ class CentralPipeline:
             model_path=model_path,
             clip_pretrained_path=clip_pretrained,
             images_dir=crops_dir,
-            result_file=result_file,
+            result_file=self.str_result_file,
             logger=self.logger,
             num_workers=num_parallel_workers,
             batch_size=batch_size,
@@ -1269,11 +1351,14 @@ class CentralPipeline:
             self.run_crops_model()
         if run_str:
             if use_clip4str:
+                results_file_name = config.dataset['SoccerNet']['clpip4str_results_file']
                 self.logger.info("Using CLIP4STR model for scene text recognition")
                 self.run_clip4str_model()  # Use our new method
             else:
+                results_file_name = config.dataset['SoccerNet']['str_results_file']
                 self.logger.info("Using PARSEQ2 model for scene text recognition")
                 self.run_str_model()  # Use the original method
+            self.aggregate_str_results(results_file_name)
         if run_combine:
             self.combine_results()
         if run_eval:

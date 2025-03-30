@@ -29,8 +29,8 @@ dataset = {'SoccerNet':
                  'crops_folder': 'crops',
                  'jersey_id_result': 'jersey_id_results.json',
                  'clip4str_model': 'data/pre_trained_models/str/clip4str_huge_3e942729b1.pt',
-                 'str_result_file': 'str_results.json',
-                 'clpip4str_result_file': 'clip4str_results.json',
+                 'str_results_file': 'str_results.json',
+                 'clpip4str_results_file': 'clip4str_results.json',
                  'final_result': 'final_results.json',
                  'test': {
                         'images': 'test/images',
