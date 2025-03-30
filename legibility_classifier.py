@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 from jersey_number_dataset import JerseyNumberLegibilityDataset, UnlabelledJerseyNumberLegibilityDataset, TrackletLegibilityDataset
 from networks import LegibilityClassifier, LegibilitySimpleClassifier, LegibilityClassifier34, LegibilityClassifierTransformer
 
+import logging
+
 import time
 import copy
 import argparse
@@ -345,6 +347,12 @@ def test_model(model, subset, result_path=None):
 def wrap_state_dict_keys(state_dict, prefix='model'):
     return {f'{prefix}.{k}': v for k, v in state_dict.items()}
 
+def __getitem__(self, idx):
+    img_path = self.image_paths[idx]
+    img = Image.open(img_path).convert('RGB')
+    img = self.transform(img)
+    return img, img_path
+
 # run inference on a list of files
 def run(image_paths, model_path, threshold=0.5, arch='vit'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
@@ -373,11 +381,16 @@ def run(image_paths, model_path, threshold=0.5, arch='vit'):
             outputs = model_ft(inputs)
 
             if arch == 'vit':
-                probs = torch.softmax(outputs, dim=1)
-                confidence = probs.max(dim=1).values
+                probs = torch.softmax(outputs, dim=1)  # shape: (batch_size, 2)
+                logging.info(f"Probs (thresh={threshold}): {probs.tolist()}")
+                confidence = probs
+                logging.info(f"Confidence level (thresh={threshold}): {confidence.tolist()}")
                 outputs = (confidence > threshold).float()
             else:
                 outputs = torch.sigmoid(outputs)
+                
+                # Show what outputs are in comparison to threshold:
+                logging.info(f"Outputs (thresh={threshold}): {outputs.tolist()}")
                 outputs = (outputs > threshold).float()
 
         preds = outputs.cpu().numpy().flatten().tolist()

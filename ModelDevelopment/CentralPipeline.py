@@ -520,7 +520,8 @@ class CentralPipeline:
                 # Add other logger configuration if needed
             }
             
-            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            # NOTE: ProcessPool is 25% faster but shoes no logs. ThreadPool shows us logs so might be better to just stick to ThreadPool
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(pose_worker,
                                                 tracklet,
@@ -1085,7 +1086,9 @@ class CentralPipeline:
 
                 # Phase 1: Process each tracklet in parallel for this batch
                 tasks = []
-                for tracklet in self.tracklets_to_process:
+                #self.logger.info(f"DEBUG data dict: {batch_tracklets_to_process}")
+                for tracklet in batch_tracklets_to_process:
+                    #self.logger.info(f"DEBUG tracklet to int: {int(tracklet)}")
                     images = data_dict[tracklet]
                     args = (
                         tracklet,

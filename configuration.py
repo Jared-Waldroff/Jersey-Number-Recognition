@@ -91,7 +91,7 @@ dataset = {'SoccerNet':
                  'numbers_data': 'lmdb',
 
                  'legibility_model': "models/legibility_resnet34_soccer_20240215.pth",
-                 'legibility_model_arch': "vit", #resnet34
+                 'legibility_model_arch': "resnet34", #vit
 
                  'legibility_model_url':  "https://drive.google.com/uc?id=18HAuZbge3z8TSfRiX_FzsnKgiBs-RRNw",
                  'pose_model_url': 'https://drive.google.com/uc?id=1A3ftF118IcxMn_QONndR-8dPWpf7XzdV',
