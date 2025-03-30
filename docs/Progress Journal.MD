@@ -309,8 +309,9 @@ Status updates from all teams:
 - Backward compatibility maintained for all existing code
 - Demonstrated significantly improved processing speed
 
-#### Transformer Team Update (Aadil, Mahmoud):
-- Status update pending
+#### ConvNet Team Update (Aadil, Mahmoud):
+- Successfully implemented the ConvNet architecture.
+- Applied structural modifications and hyperparameter tuning for improved performance.
 
 ### Project Completion Planning
 - Final report structure and requirements discussed
@@ -335,7 +336,7 @@ Status updates from all teams:
 | Improved legibility classifier / reduced error rate for illegible tracklets | Colin | March 30th, 2025 | In-Progress |
 | Parallelized pose + crops + STR | Colin | March 29th, 2025 | In-Progress |
 | Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | In Progress |
-| Complete transformer implementation | Aadil, Mahmoud | March 27, 2025 | Status Unknown |
+| Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | Status In progress |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
 | Complete slide deck for presentation | All members | March 31, 2025 |In Progress |
 | Prepare project demo | All members | April 3, 2025 | In Progress  |
