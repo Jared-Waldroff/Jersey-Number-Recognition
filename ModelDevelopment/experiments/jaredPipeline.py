@@ -19,7 +19,7 @@ def main():
     tracks, max_track = data_preprocessor.get_tracks(DataPaths.TEST_DATA_DIR.value)
 
     # Randomly select a subset of tracks
-    num_tracklets_to_process = 4  # Change this to the number of random tracklets you want
+    num_tracklets_to_process = 3  # Change this to the number of random tracklets you want
     random_tracklets = random.sample(tracks, num_tracklets_to_process)
 
     pipeline = CentralPipeline(
@@ -34,13 +34,13 @@ def main():
         display_transformed_image_sample=False,
         # NOTE: DO NOT USE. Code is parallelized so we cannot show images anymore. Code breaks, but first one will show if True.
         num_image_samples=1,
-        use_cache=True,  # Set to false if you encounter data inconsistencies.
+        use_cache=False,  # Set to false if you encounter data inconsistencies.
         suppress_logging=False,
 
         # --- PARALLELIZATION PARAMS --- These settings are optimal for an NVIDIA RTX 3070 Ti Laptop GPU.
-        num_workers=1,  # CRITICAL optimisation param. Adjust accordingly. 6
+        num_workers=2,  # CRITICAL optimisation param. Adjust accordingly. 6
         tracklet_batch_size=32,  # CRITICAL optimisation param. Adjust accordingly. 32
-        image_batch_size=128,  # CRITICAL optimisation param. Adjust accordingly. 200
+        image_batch_size=32,  # CRITICAL optimisation param. Adjust accordingly. 200
         num_threads_multiplier=1,
         # CRITICAL optimisation param. Adjust accordingly. 3. Interpretation: num_threads = num_workers * num_threads_multiplier
     )
