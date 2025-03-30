@@ -20,7 +20,7 @@ dataset = {'SoccerNet':
                  'working_dir': './out/SoccerNetResults',
                  # GLOBAL PARAMS: These are separated by the test/train/challenge dirs anyways so name can be the same.
                  'sim_filtered': 'main_subject_0.4.json',
-                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 3.5, 'r': 3},
+                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 0.999, 'r': 3},
                  'soccer_ball_list': 'soccer_ball.json',
                  'legible_result': 'legible_results.json',
                  'illegible_result': 'illegible_results.json',
@@ -91,7 +91,7 @@ dataset = {'SoccerNet':
                  'numbers_data': 'lmdb',
 
                  'legibility_model': "models/legibility_resnet34_soccer_20240215.pth",
-                 'legibility_model_arch': "resnet34",
+                 'legibility_model_arch': "vit", #resnet34
 
                  'legibility_model_url':  "https://drive.google.com/uc?id=18HAuZbge3z8TSfRiX_FzsnKgiBs-RRNw",
                  'pose_model_url': 'https://drive.google.com/uc?id=1A3ftF118IcxMn_QONndR-8dPWpf7XzdV',

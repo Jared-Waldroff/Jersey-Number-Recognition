@@ -46,6 +46,7 @@ class DataPaths(Enum):
     REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
     REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
     RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'legibility_resnet34_soccer_20240215.pth')
+    VIT_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'ViT' / 'vit_base_patch16_224_in21k_ft_svhn.pth')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
@@ -224,7 +225,7 @@ class DataPreProcessing:
         # Set up the transformation pipeline
         if classic_transform:
             val_transforms = transforms.Compose([
-                transforms.Resize((256, 256)),
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])

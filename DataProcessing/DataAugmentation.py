@@ -250,8 +250,8 @@ class ImageEnhancement:
 
     def __init__(self,
                  brightness_factor=1.3,
-                 contrast_factor=1.3,
-                 sharpness_factor=1.5,
+                 contrast_factor=1.5,
+                 sharpness_factor=2,
                  use_clahe=False,
                  clahe_clip_limit=2.0,
                  clahe_tile_grid_size=(8, 8),

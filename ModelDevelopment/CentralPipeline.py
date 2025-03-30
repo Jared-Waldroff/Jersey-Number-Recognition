@@ -271,7 +271,6 @@ class CentralPipeline:
             tracks, max_track = self.data_preprocessor.get_tracks(self.input_data_path)
             self.tracklets_to_process = tracks[:self.num_tracklets]
         
-        
         # Limit concurrent GPU calls (example).
         # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
         # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
@@ -401,53 +400,72 @@ class CentralPipeline:
         """
         self.logger.info("Generating json for pose")
         self.aggregate_legibility_results_data()
-        
-        # Need to perform a set difference because loaded_legible_results.keys() is just all tracklets, but array will be empty
-        # loaded_illegible_results.keys() is only the illegible ones
-        #print(self.loaded_legible_results.keys())
-        #print(self.loaded_illegible_results["illegible"])
+
         all_tracklets = {int(k) for k in self.loaded_legible_results.keys()}
         illegible = {int(x) for x in self.loaded_illegible_results["illegible"]}
         legible_set = all_tracklets - illegible
         self.legible_tracklets_list = sorted(legible_set)
         self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
-        self.logger.info(f"Legible  tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
-        
+        self.logger.info(f"Legible tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
+
         num_messages = 0
 
         def worker_from_loaded(key, entries):
+            """
+            Worker that processes tracklets we already have in self.loaded_legible_results.
+            Returns a list of log messages so we can print them in the main thread.
+            """
             nonlocal num_messages
-            # Compute output path for this tracklet
+            log_messages = []
             output_json = os.path.join(self.output_processed_data_path, key, config.dataset['SoccerNet']['pose_input_json'])
-            
+
             if self.use_cache and os.path.exists(output_json):
                 num_messages += 1
                 if num_messages == 1:
-                    self.logger.info("Used cached data for pose JSON")
-                return
-            
+                    # Instead of self.logger.info, store the message and return it.
+                    log_messages.append("Used cached data for pose JSON")
+                return log_messages
+
             # Build full paths for each image entry
             images = [os.path.join(os.getcwd(), entry) for entry in entries]
-            # Generate the JSON for this tracklet
             helpers.generate_json(images, output_json)
 
+            log_messages.append(f"Generated pose JSON for tracklet {key} with {len(images)} images.")
+            return log_messages
+
         def worker_from_dir(tracklet):
+            """
+            Worker that processes tracklets NOT in loaded_legible_results. We read images from a folder.
+            Returns a list of log messages so we can print them in the main thread.
+            """
             nonlocal num_messages
-            # For tracklets not in loaded_legible_results, we read images from the input directory.
+            log_messages = []
             output_json = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['pose_input_json'])
-            
+
             if self.use_cache and os.path.exists(output_json):
                 num_messages += 1
                 if num_messages == 1:
-                    self.logger.info("Used cached data for pose JSON")
-                return
-            
+                    log_messages.append("Used cached data for pose JSON")
+                return log_messages
+
             track_dir = os.path.join(self.input_data_path, tracklet)
             imgs = os.listdir(track_dir)
-            imgs = imgs[:self.num_image_samples]  # Subset to desired number of images
-            # Build full paths; assuming you want the absolute path of each image
+            
+            self.logger.info(f"Images before any subsetting: {len(imgs)}")
+
+            # Subset to desired number of images
+            if self.num_images_per_tracklet is not None:
+                log_messages.append(f"Subsetting images to {self.num_images_per_tracklet} for tracklet {tracklet}")
+                imgs = imgs[:self.num_images_per_tracklet]
+                
+            self.logger.info(f"Images after subsetting: {len(imgs)}")
+
             images = [os.path.join(os.getcwd(), track_dir, img) for img in imgs]
+            log_messages.append(f"Constructed images for tracklet {tracklet}: {','.join(images)}")
             helpers.generate_json(images, output_json)
+            log_messages.append(f"Generated pose JSON for tracklet {tracklet} with {len(images)} images.")
+
+            return log_messages
 
         futures = []
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
@@ -459,11 +477,14 @@ class CentralPipeline:
                 # Process each tracklet from tracklets_to_process by reading its directory.
                 for tr in self.tracklets_to_process:
                     futures.append(executor.submit(worker_from_dir, tr))
-            
+
             # Use tqdm to display progress over all futures
             for future in tqdm(as_completed(futures), total=len(futures), desc="Generating pose JSON"):
                 try:
-                    future.result()
+                    worker_log_messages = future.result()  # list of strings
+                    # Now we do the actual logging on the main thread
+                    for msg in worker_log_messages:
+                        self.logger.info(msg)
                 except Exception as e:
                     self.logger.error(f"Error processing tracklet for pose json: {e}")
 

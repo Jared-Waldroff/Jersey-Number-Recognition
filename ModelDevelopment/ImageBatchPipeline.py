@@ -124,7 +124,7 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=False, filter='gauss', exclude_balls=False):
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=False):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         # DO NOT USE: Caching is now controlled in CentralPipeline
@@ -184,7 +184,7 @@ class ImageBatchPipeline:
         images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
 
         # Ship these images over to the legibility classifier
-        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.25)
+        track_results = lc.run(images_full_path, DataPaths.VIT_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
         legible = list(np.nonzero(track_results))[0]
         
         if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls):
