@@ -15,6 +15,7 @@
 # limitations under the License.
 import os
 import argparse
+import json  # Add this import
 
 import torch
 
@@ -30,8 +31,14 @@ def main():
     parser.add_argument('checkpoint', help="Model checkpoint (or 'pretrained=<model_id>')")
     parser.add_argument('--images_path', type=str, help='Images to read')
     parser.add_argument('--device', default='cuda')
+    parser.add_argument('--clip_pretrained', type=str, help='Path to pretrained CLIP model')
     args, unknown = parser.parse_known_args()
+
+    # Add clip_pretrained to kwargs if provided
     kwargs = parse_model_args(unknown)
+    if args.clip_pretrained:
+        kwargs['clip_pretrained'] = args.clip_pretrained
+
     print(f'Additional keyword arguments: {kwargs}')
 
     model = load_from_checkpoint(args.checkpoint, **kwargs).eval().to(args.device)
@@ -55,38 +62,68 @@ def main():
                 else:
                     digit_indices.append(i)
 
+    # Create a dictionary to store all results
+    results_dict = {}
+
     for fname in files:
         # Load image and prepare for input
         filename = os.path.join(args.images_path, fname)
-        image = Image.open(filename).convert('RGB')
-        image = img_transform(image).unsqueeze(0).to(args.device)
+        try:
+            image = Image.open(filename).convert('RGB')
+            image = img_transform(image).unsqueeze(0).to(args.device)
 
-        # Get raw logits from model
-        logits = model(image)
+            # Get raw logits from model
+            logits = model(image)
 
-        # Create a biased version that only allows digits
-        biased_logits = torch.ones_like(logits) * -1000.0
+            # Create a biased version that only allows digits
+            biased_logits = torch.ones_like(logits) * -1000.0
 
-        # If we find digits, use them
-        if digit_indices:
-            biased_logits[:, :, digit_indices] = logits[:, :, digit_indices]
-        else:
-            biased_logits = logits
+            # If we find digits, use them
+            if digit_indices:
+                biased_logits[:, :, digit_indices] = logits[:, :, digit_indices]
+            else:
+                biased_logits = logits
 
-        # Convert to probabilities
-        probs = biased_logits.softmax(-1)
+            # Convert to probabilities
+            probs = biased_logits.softmax(-1)
 
-        # Get raw prediction
-        raw_pred, _ = model.tokenizer.decode(probs)
-        jersey_number = raw_pred[0]
+            # Get raw prediction
+            raw_pred, confidences = model.tokenizer.decode(probs)
+            jersey_number = raw_pred[0]
 
-        # Ensure only digits (fallback)
-        if not all(c.isdigit() for c in jersey_number):
-            jersey_number = ''.join([c for c in jersey_number if c.isdigit()])
-            if not jersey_number:
-                jersey_number = "-1"
+            # Only keep confidence scores for the actual digits
+            if jersey_number.isdigit() and len(jersey_number) <= 2:
+                confidences[0] = confidences[0][:len(jersey_number)]
 
-        print(f'{fname}: {raw_pred} → Jersey Number: {jersey_number}')
+            # Ensure only digits (fallback)
+            if not all(c.isdigit() for c in jersey_number):
+                jersey_number = ''.join([c for c in jersey_number if c.isdigit()])
+                if not jersey_number:
+                    jersey_number = "-1"
+
+            # Still print the original info for debugging
+            print(f'{fname}: {raw_pred[0]} → Jersey Number: {jersey_number} → Confidence: {confidences[0].tolist()}')
+
+            # Store result in our dictionary
+            results_dict[fname] = {
+                "label": jersey_number,
+                "confidence": confidences[0].tolist()
+            }
+
+        except Exception as e:
+            print(f"Error processing {fname}: {e}")
+            # Add failed entry to results with error message
+            results_dict[fname] = {
+                "label": "-1",
+                "confidence": [0.0],
+                "error": str(e)
+            }
+
+    # Print the entire results dictionary as JSON at the end
+    # This makes it easier for clip4str.py to parse
+    print("\nJSON_RESULTS_BEGIN")
+    print(json.dumps(results_dict, indent=2))
+    print("JSON_RESULTS_END")
 
 
 if __name__ == '__main__':

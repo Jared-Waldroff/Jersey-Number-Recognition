@@ -1,3 +1,4 @@
+import threading
 from enum import Enum
 from pathlib import Path
 import time
@@ -20,6 +21,8 @@ import configuration as config
 import json
 import subprocess
 import threading
+import sys
+import StreamlinedPipelineScripts.clip4str as clip4str_module
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
@@ -188,24 +191,27 @@ def process_tracklet_worker(args):
         logger.error("Exception in process_tracklet_worker", exc_info=True)
         raise
 
+
 class CentralPipeline:
     def __init__(self,
-                input_data_path: DataPaths,
-                gt_data_path: DataPaths,
-                output_processed_data_path: DataPaths,
-                common_processed_data_dir: DataPaths,
-                num_workers: int=8,
-                display_transformed_image_sample: bool=False,
-                num_image_samples: int=1,
-                use_cache: bool=True,
-                suppress_logging: bool=False,
-                num_tracklets: int=None,
-                num_images_per_tracklet: int=None,
-                tracklet_batch_size = 32,
-                image_batch_size: int=200,
-                num_threads_multiplier: int=3,
-                tracklets_to_process_override: list=None,
-                ):
+                 input_data_path: DataPaths,
+                 gt_data_path: DataPaths,
+                 output_processed_data_path: DataPaths,
+                 common_processed_data_dir: DataPaths,
+                 num_workers: int = 8,
+                 single_image_pipeline: bool = True,
+                 display_transformed_image_sample: bool = False,
+                 num_image_samples: int = 1,
+                 use_cache: bool = True,
+                 suppress_logging: bool = False,
+                 num_tracklets: int = None,
+                 num_images_per_tracklet: int = None,
+                 tracklet_batch_size=32,
+                 image_batch_size: int = 200,
+                 num_threads_multiplier: int = 3,
+                 tracklets_to_process_override: list = None,
+                 ):
+        self.gpu_semaphore = None
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
@@ -230,35 +236,35 @@ class CentralPipeline:
         
         self.loaded_ball_tracks = None
         self.analysis_results = None
-        
+
         self.data_preprocessor = DataPreProcessing(
-        display_transformed_image_sample=self.display_transformed_image_sample,
-        num_image_samples=self.num_image_samples,
-        suppress_logging=self.suppress_logging
+            display_transformed_image_sample=self.display_transformed_image_sample,
+            num_image_samples=self.num_image_samples,
+            suppress_logging=self.suppress_logging
         )
         self.image_enhancer = ImageEnhancement()
-        
+
         # When the pipeline is first instantiated, ensure the use has all the necessary paths
         self.data_preprocessor.create_data_dirs(self.input_data_path, self.output_processed_data_path)
-        
+
         # Check if the input directory exists. If not, tell the user.
         if not os.path.exists(self.input_data_path):
             raise FileNotFoundError(f"Input data path does not exist: {self.input_data_path}")
-        
+
         # Check if the output directory exists. If not, create it.
         if not os.path.exists(self.output_processed_data_path):
             os.makedirs(self.output_processed_data_path)
-        
+
         self.logger = CustomLogger().get_logger()
-        
+
         # Determine if the user has pytorch cuda
         self.use_cuda = True if torch.cuda.is_available() else False
         self.device = torch.device('cuda' if self.use_cuda else 'cpu')
         self.logger.info(f"Using device: {self.device}")
-        
+
         self.image_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'])
         self.str_result_file = os.path.join(self.common_processed_data_dir, "str_results.json")
-        
+
         # Constants
         self.LEGAL_TRANSFORMATIONS = list(LegalTransformations.__members__.keys())
         self.DISP_IMAGE_CAP = 1
@@ -310,6 +316,56 @@ class CentralPipeline:
                 with open(soccer_ball_list_path, "w") as outfile:
                     json.dump({'ball_tracks': []}, outfile)
                 
+    def set_legibility_results_data(self):
+        global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
+        global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
+
+        # 1) If use_cache is True and both global files exist, skip the loop entirely and load from cache.
+        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(global_illegible_results_path):
+            self.logger.info("Reading legible & illegible results from cache (both global files exist).")
+            with open(global_legible_results_path, 'r') as f_leg:
+                self.loaded_legible_results = json.load(f_leg)
+            with open(global_illegible_results_path, 'r') as f_ill:
+                self.loaded_illegible_results = json.load(f_ill)
+            return  # Skip re-aggregation altogether
+
+        # 2) Otherwise, we need to re-aggregate from individual tracklet files.
+        self.logger.info("Aggregating legible & illegible results (cache not used or only one file is missing).")
+        for tracklet in self.tracklets_to_process:
+            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
+            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
+
+            # Aggregate legible results
+            with open(legible_results_path, 'r') as openfile:
+                legible_results = json.load(openfile)
+                if self.loaded_legible_results is None:
+                    self.loaded_legible_results = legible_results
+                else:
+                    for key, val in legible_results.items():
+                        if key in self.loaded_legible_results:
+                            self.loaded_legible_results[key].extend(val)
+                        else:
+                            self.loaded_legible_results[key] = val
+
+            # Aggregate illegible results
+            # The structure is: {'illegible': [list of tracklet numbers]}
+            with open(illegible_results_path, 'r') as openfile:
+                illegible_results = json.load(openfile)
+                if self.loaded_illegible_results is None:
+                    self.loaded_illegible_results = illegible_results
+                else:
+                    self.loaded_illegible_results['illegible'].extend(illegible_results['illegible'])
+
+        # 3) Write aggregated results back to the global files.
+        with open(global_legible_results_path, 'w') as outfile:
+            json.dump(self.loaded_legible_results, outfile)
+
+        with open(global_illegible_results_path, 'w') as outfile:
+            json.dump(self.loaded_illegible_results, outfile)
+
+        self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
+        self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
+
     def aggregate_legibility_results_data(self):
         global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
         global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
@@ -359,10 +415,46 @@ class CentralPipeline:
 
         self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
-        
+
     def aggregate_pose(self):
-        pass
-        
+        """Aggregates pose results from individual tracklets into a global file."""
+        self.logger.info("Aggregating pose results")
+
+        # Path for the global pose results
+        global_pose_results_path = os.path.join(self.common_processed_data_dir,
+                                                config.dataset['SoccerNet']['pose_output_json'])
+
+        # If cache is enabled and global file exists, we can skip aggregation
+        if self.use_cache and os.path.exists(global_pose_results_path):
+            self.logger.info("Using cached global pose results")
+            return
+
+        # Initialize empty list to hold all pose results
+        all_pose_results = []
+
+        # Process each legible tracklet
+        for tracklet in self.legible_tracklets_list:
+            tracklet_pose_path = os.path.join(self.output_processed_data_path,
+                                              tracklet,
+                                              config.dataset['SoccerNet']['pose_output_json'])
+
+            # Skip if the tracklet doesn't have pose results
+            if not os.path.exists(tracklet_pose_path):
+                continue
+
+            # Read the tracklet's pose results
+            with open(tracklet_pose_path, 'r') as f:
+                tracklet_pose_data = json.load(f)
+
+            # Append to our global list
+            if 'pose_results' in tracklet_pose_data:
+                all_pose_results.extend(tracklet_pose_data['pose_results'])
+
+        # Write the aggregated results to the global file
+        with open(global_pose_results_path, 'w') as f:
+            json.dump({"pose_results": all_pose_results}, f)
+
+        self.logger.info(f"Saved aggregated pose results to: {global_pose_results_path}")
     def set_ball_tracks(self):
         global_ball_tracks_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['soccer_ball_list'])
 
@@ -650,16 +742,17 @@ class CentralPipeline:
 
         print(f"skipped {total_misses} out of {len(all_poses)}")
         return aggregated_skipped, aggregated_saved
-        
+
     def run_crops_model(self):
         output_json = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['pose_output_json'])
-        
+
         self.logger.info("Generate crops")
-        crops_destination_dir = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['crops_folder'], 'imgs')
+        crops_destination_dir = os.path.join(self.common_processed_data_dir,
+                                             config.dataset['SoccerNet']['crops_folder'], 'imgs')
         Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
-        #self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
+        # self.logger.info(f"Before setting legible results data: {self.loaded_legible_results}")
         self.aggregate_legibility_results_data()
-        #self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
+        # self.logger.info(f"After setting legible results data: {self.loaded_legible_results}")
         self.generate_crops(output_json, crops_destination_dir)
         self.logger.info("Done generating crops")
         
@@ -695,58 +788,58 @@ class CentralPipeline:
 
     def run_clip4str_model(self):
         """
-        Run the CLIP4STR model for scene text recognition instead of the original parseq model.
-        This method follows a similar pattern to run_str_model but uses the CLIP4STR model.
+        Run the CLIP4STR model for scene text recognition in parallel.
+        Uses the clip4str.py module to handle the processing.
         """
-        self.logger.info("Predicting numbers using CLIP4STR model")
-        os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
+        self.logger.info("Predicting numbers using parallel CLIP4STR model")
+        # Use the built-in string conversion function explicitly
+        base_dir = __builtins__['str'](Path.cwd().parent.parent)  # Get base project directory
+        os.chdir(base_dir)  # ensure correct working directory
         print("Current working directory: ", os.getcwd())
 
-        # Path to the CLIP4STR model file
-        clip4str_model_path = os.path.join("data", "pre_trained_models", "str", "clip4str_huge_3e942729b1.pt")
+        # Import the clip4str module with a different name to avoid conflict
+        sys.path.append(os.path.join(base_dir, "StreamlinedPipelineScripts"))
 
-        # Try direct python executable path instead of conda run
-        try:
-            # Find the python executable in the clip4str environment
-            clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env,
-                                           "python.exe")
+        # Set paths
+        clip4str_dir = os.path.join(base_dir, "str", "CLIP4STR")
+        model_path = os.path.join(clip4str_dir, "pretrained", "clip", "clip4str_huge_3e942729b1.pt")
+        clip_pretrained = os.path.join(clip4str_dir, "pretrained", "clip", "appleDFN5B-CLIP-ViT-H-14.bin")
+        read_script_path = os.path.join(clip4str_dir, "read.py")
 
-            if not os.path.exists(clip4str_python):
-                self.logger.error(f"Python executable not found at: {clip4str_python}")
-                # Try falling back to parseq environment which should have most dependencies
-                clip4str_python = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.str_env,
-                                               "python.exe")
-                self.logger.info(f"Falling back to parseq environment: {clip4str_python}")
+        # Path to Python executable
+        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
 
-            command = [
-                clip4str_python,  # Use direct path to Python executable
-                os.path.join("StreamlinedPipelineScripts", "clip4str.py"),
-                "pretrained=vl4str",
-                "--model_path", clip4str_model_path,
-                "--model_type", "vl4str",
-                f"--data_root={self.image_dir}",
-                "--batch_size=1",
-                "--inference",
-                "--result_file", self.str_result_file
-            ]
+        # Set environment variables
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-            self.logger.info(f"Running command: {' '.join(command)}")
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
+        # Path to images directory and result file
+        crops_dir = os.path.join(self.image_dir, 'imgs')
+        result_file = self.str_result_file
 
-            # Log standard output and errors
-            self.logger.info(result.stdout)
-            if result.stderr:
-                self.logger.error(result.stderr)
+        # Run CLIP4STR inference using the parallel module
+        num_parallel_workers = self.num_workers
+        batch_size = self.image_batch_size
 
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running CLIP4STR model: {e}")
-            self.logger.info(e.stdout if e.stdout else "No stdout output")
-            self.logger.error(e.stderr if e.stderr else "No stderr output")
-        except Exception as e:
-            self.logger.error(f"Unexpected error in run_clip4str_model: {e}", exc_info=True)
+        self.gpu_semaphore = threading.Semaphore(value=2)
 
-        self.logger.info("Done predicting numbers with CLIP4STR")
-    
+        success = clip4str_module.run_parallel_clip4str_inference(
+            python_path=python_exe,
+            read_script_path=read_script_path,
+            model_path=model_path,
+            clip_pretrained_path=clip_pretrained,
+            images_dir=crops_dir,
+            result_file=result_file,
+            logger=self.logger,
+            num_workers=num_parallel_workers,
+            batch_size=batch_size,
+            env=env,
+            gpu_semaphore=self.gpu_semaphore
+        )
+
+        self.logger.info("Done predicting numbers with parallel CLIP4STR")
+
     def is_track_legible(self, track, illegible_list, legible_tracklets):
         THRESHOLD_FOR_TACK_LEGIBILITY = 0
         if track in illegible_list:
@@ -1009,17 +1102,18 @@ class CentralPipeline:
         return False  # If no use_cache, we never skip
         
     def run_soccernet(self,
-                      run_soccer_ball_filter=False,
-                      generate_features=False,
-                      run_filter=False,
-                      run_legible=False,
-                      run_legible_eval=False,
-                      run_pose=False,
-                      run_crops=False,
+                      run_soccer_ball_filter=True,
+                      generate_features=True,
+                      run_filter=True,
+                      run_legible=True,
+                      run_legible_eval=True,
+                      run_pose=True,
+                      run_crops=True,
                       run_str=True,
                       run_combine=True,
                       run_eval=True,
-                      use_clip4str=True):
+                      use_clip4str=True,
+                      pyscrippt=True):
         self.logger.info("Running the SoccerNet pipeline.")
         
         if generate_features or run_filter or run_legible:
@@ -1151,7 +1245,8 @@ class CentralPipeline:
         if run_pose:
             # CRITICAL: Pose processing should occur after legibility results are computed
             self.init_json_for_pose_estimator()
-            self.run_pose_estimation_model()
+            self.run_pose_estimation_model(pyscrippt=pyscrippt)
+            self.aggregate_pose()
         if run_crops:
             self.run_crops_model()
         if run_str:
@@ -1159,7 +1254,7 @@ class CentralPipeline:
                 self.logger.info("Using CLIP4STR model for scene text recognition")
                 self.run_clip4str_model()  # Use our new method
             else:
-                self.logger.info("Using original model for scene text recognition")
+                self.logger.info("Using PARSEQ2 model for scene text recognition")
                 self.run_str_model()  # Use the original method
         if run_combine:
             self.combine_results()
