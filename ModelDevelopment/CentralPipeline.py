@@ -312,56 +312,6 @@ class CentralPipeline:
                 # Create the file
                 with open(soccer_ball_list_path, "w") as outfile:
                     json.dump({'ball_tracks': []}, outfile)
-                
-    def set_legibility_results_data(self):
-        global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
-        global_illegible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['illegible_result'])
-
-        # 1) If use_cache is True and both global files exist, skip the loop entirely and load from cache.
-        if self.use_cache and os.path.exists(global_legible_results_path) and os.path.exists(global_illegible_results_path):
-            self.logger.info("Reading legible & illegible results from cache (both global files exist).")
-            with open(global_legible_results_path, 'r') as f_leg:
-                self.loaded_legible_results = json.load(f_leg)
-            with open(global_illegible_results_path, 'r') as f_ill:
-                self.loaded_illegible_results = json.load(f_ill)
-            return  # Skip re-aggregation altogether
-
-        # 2) Otherwise, we need to re-aggregate from individual tracklet files.
-        self.logger.info("Aggregating legible & illegible results (cache not used or only one file is missing).")
-        for tracklet in self.tracklets_to_process:
-            legible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['legible_result'])
-            illegible_results_path = os.path.join(self.output_processed_data_path, tracklet, config.dataset['SoccerNet']['illegible_result'])
-
-            # Aggregate legible results
-            with open(legible_results_path, 'r') as openfile:
-                legible_results = json.load(openfile)
-                if self.loaded_legible_results is None:
-                    self.loaded_legible_results = legible_results
-                else:
-                    for key, val in legible_results.items():
-                        if key in self.loaded_legible_results:
-                            self.loaded_legible_results[key].extend(val)
-                        else:
-                            self.loaded_legible_results[key] = val
-
-            # Aggregate illegible results
-            # The structure is: {'illegible': [list of tracklet numbers]}
-            with open(illegible_results_path, 'r') as openfile:
-                illegible_results = json.load(openfile)
-                if self.loaded_illegible_results is None:
-                    self.loaded_illegible_results = illegible_results
-                else:
-                    self.loaded_illegible_results['illegible'].extend(illegible_results['illegible'])
-
-        # 3) Write aggregated results back to the global files.
-        with open(global_legible_results_path, 'w') as outfile:
-            json.dump(self.loaded_legible_results, outfile)
-
-        with open(global_illegible_results_path, 'w') as outfile:
-            json.dump(self.loaded_illegible_results, outfile)
-
-        self.logger.info(f"Saved global legible results to: {global_legible_results_path}")
-        self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
 
     def aggregate_legibility_results_data(self):
         global_legible_results_path = os.path.join(self.common_processed_data_dir, config.dataset['SoccerNet']['legible_result'])
@@ -480,6 +430,14 @@ class CentralPipeline:
             json.dump({"ball_tracks": self.loaded_ball_tracks}, outfile)
 
         self.logger.info(f"Saved global ball tracks to: {global_ball_tracks_path}")
+        
+    def set_legibility_arrays(self):
+        all_tracklets = {int(k) for k in self.loaded_legible_results.keys()}
+        illegible = {int(x) for x in self.loaded_illegible_results["illegible"]}
+        legible_set = all_tracklets - illegible
+        self.legible_tracklets_list = sorted(legible_set)
+        self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
+        self.logger.info(f"Legible tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
                 
     def init_json_for_pose_estimator(self):
         """
@@ -489,13 +447,7 @@ class CentralPipeline:
         """
         self.logger.info("Generating json for pose")
         self.aggregate_legibility_results_data()
-
-        all_tracklets = {int(k) for k in self.loaded_legible_results.keys()}
-        illegible = {int(x) for x in self.loaded_illegible_results["illegible"]}
-        legible_set = all_tracklets - illegible
-        self.legible_tracklets_list = sorted(legible_set)
-        self.legible_tracklets_list = [str(x) for x in self.legible_tracklets_list]
-        self.logger.info(f"Legible tracklets list: {', '.join([x for x in self.legible_tracklets_list])}")
+        self.set_legibility_arrays()
 
         num_messages = 0
 
@@ -742,6 +694,7 @@ class CentralPipeline:
         """
         # Make sure we have the latest legibility results before spawning threads
         self.aggregate_legibility_results_data()
+        self.set_legibility_arrays()
 
         # Collect futures for each tracklet
         futures = []
@@ -791,33 +744,65 @@ class CentralPipeline:
         
     def run_str_model(self):
         self.logger.info("Predicting numbers")
-        os.chdir(str(Path.cwd().parent.parent))  # ensure correct working directory
-        print("Current working directory: ", os.getcwd())
-        command = [
-            "conda", "run", "-n", config.str_env, "python",
-            os.path.join("StreamlinedPipelineScripts", "str.py"),
-            DataPaths.STR_MODEL.value,
-            f"--data_root={self.image_dir}",
-            "--batch_size=1",
-            "--inference",
-            "--result_file", self.str_result_file
-        ]
         
-        # Cache flag:
-        # if self.use_cache:
-        #     command.append("--use_cache")
+        # Ensure correct working directory.        
+        os.chdir(str(Path.cwd().parent.parent))
+        print("Current working directory: ", os.getcwd())
+        
+        def run_str_for_tracklet(tracklet):
+            # Build the processed data path for the current tracklet.
+            processed_data_path = os.path.join(self.output_processed_data_path, tracklet)
+            processed_data_path_crops = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
+            
+            # Construct the path to the result file.
+            result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_result_file'])
+            
+            # If caching is enabled and the result file already exists, skip running the command.
+            if self.use_cache and os.path.exists(result_file):
+                self.logger.info(f"Skipping tracklet {tracklet} (cache found at {result_file}).")
+                return tracklet, f"Cached: {result_file}"
+            
+            # Build the command; here we pass the tracklet's processed data path as the --data_root.
+            command = [
+                "conda", "run", "-n", config.str_env, "python",
+                os.path.join("StreamlinedPipelineScripts", "str.py"),
+                DataPaths.STR_MODEL.value,
+                f"--data_root={processed_data_path}",
+                "--batch_size=1",
+                "--inference",
+                "--result_file", result_file,
+            ]
+            
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, check=True)
+                self.logger.info(f"Tracklet {tracklet} stdout: {result.stdout}")
+                self.logger.error(f"Tracklet {tracklet} stderr: {result.stderr}")
+                return tracklet, result.stdout
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Error processing tracklet {tracklet}: {e}")
+                self.logger.info(e.stdout)
+                self.logger.error(e.stderr)
+                return tracklet, None
 
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
-            # Log standard output and errors
-            self.logger.info(result.stdout)
-            self.logger.error(result.stderr)
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running STR model: {e}")
-            self.logger.info(e.stdout)    # Log stdout even in failure
-            self.logger.error(e.stderr)   # Log stderr for debugging
+        # Use a ThreadPoolExecutor to run the STR inference in parallel for each tracklet.
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR on tracklets", leave=True):
+                futures[executor.submit(run_str_for_tracklet, tracklet)] = tracklet
+
+            # Process results as they complete.
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Aggregating STR results", leave=True):
+                tracklet = futures[future]
+                try:
+                    tracklet, output = future.result()
+                    # Optionally, aggregate or store the output per tracklet.
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet {tracklet}: {e}")
 
         self.logger.info("Done predicting numbers")
+        
+    def aggregate_str_results(self):
+        pass
 
     def run_clip4str_model(self):
         """

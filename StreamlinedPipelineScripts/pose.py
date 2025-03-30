@@ -12,6 +12,10 @@ import math
 # Limit concurrent GPU calls (example).
 # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
 # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
+# NOTE: The way this is currently implemented, this is actually a useless variable.
+# The reason for this is that every thread spawns a subprocess for this script that maintains a local copy of GPU_SEMAPHORE.
+# This means that threads are not aware of who is holding the semaphore, because they only see their local one.
+# Addressing this solution is non-trivial, so it is left as-is for now, and we have to gamble on GPU resource allocation via the num_images batch param.
 GPU_SEMAPHORE = threading.Semaphore(value=1)
 
 os.chdir(str(Path.cwd().parent.parent))
