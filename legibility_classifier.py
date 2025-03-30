@@ -369,10 +369,17 @@ def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
         model_ft = LegibilityClassifierTransformer(num_classes=1) # Used as a binary classifier
     else:
         model_ft = LegibilityClassifier34()
-
-    state_dict = wrap_state_dict_keys(state_dict)
-    model_ft = model_ft.to(device)
-    model_ft.eval()
+        
+    if arch == 'vit':
+        state_dict = wrap_state_dict_keys(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
+    else:
+        if hasattr(state_dict, '_metadata'):
+            del state_dict._metadata
+        model_ft.load_state_dict(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
 
     results = []
     raw_outputs = []
