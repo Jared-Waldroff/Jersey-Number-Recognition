@@ -63,6 +63,7 @@ def filter_outliers(
     # Then index into that gauss_filtered json so that we do images = gauss_filtered[r]. Problem solved.
     
     logger = CustomLogger(suppress_logging=suppress_logging).get_logger()
+    logger.info(f"Threshold for scores: {threshold}, rounds: {rounds}")
     
     # logger.info("Parameters passed: ")
     # logger.info(f"DEBUG: current_tracklet={current_tracklet}")
@@ -101,25 +102,66 @@ def filter_outliers(
             results[r] = images
         # We do not return here, but rather skip the rounds phase below
     else:
-        # If we reached this point, we have enough data to run pruning on.
-        cleaned_data = features
+        # We have enough images to run pruning.
+        # Use all features initially.
+        all_features = features
+        # Initialize mu as the simple average of all feature vectors.
+        mu = np.mean(all_features, axis=0)
+        smoothing_param = 0.1  # Adjust as needed for smoothness
+
         for r in range(rounds):
-            # Fit a Gaussian distribution to the data
-            mu = np.mean(cleaned_data, axis=0)
-
-            euclidean_distance = np.linalg.norm(features - mu, axis = 1)
-
-            mean_euclidean_distance = np.mean(euclidean_distance)
-            std = np.std(euclidean_distance)
-            th = threshold * std
-
-            # Remove outliers from the data
-            cleaned_data = features[(euclidean_distance - mean_euclidean_distance) <= threshold]
-            cleaned_data_indexes = np.where((euclidean_distance - mean_euclidean_distance)<= threshold)[0]
-
-            for i in cleaned_data_indexes:
-                # Access the value array for this round (implicitly for this tracklet as this file is for this tracklet and only this tracklet)
+            # Compute Euclidean distances from the current mean.
+            euclidean_distance = np.linalg.norm(all_features - mu, axis=1)
+            
+            # Normalize the distances to [0, 1].
+            min_dist = np.min(euclidean_distance)
+            max_dist = np.max(euclidean_distance)
+            range_dist = max_dist - min_dist if (max_dist - min_dist) != 0 else 1
+            normalized_distance = (euclidean_distance - min_dist) / range_dist
+            
+            #logger.info(f"DEBUG: Round {r+1}")
+            #logger.info(f"DEBUG: normalized_euclidean_distance: {normalized_distance}")
+            #logger.info(f"DEBUG: Using threshold: {threshold} and smoothing: {smoothing_param}")
+            
+            # ---------------------------------------------------------
+            # 1) Compute a logistic "score" for each image
+            #    Score is in [0,1], where higher=closer to mean
+            # ---------------------------------------------------------
+            scores = 1.0 / (1.0 + np.exp((normalized_distance - threshold) / smoothing_param))
+            
+            # ---------------------------------------------------------
+            # 2) Update mu as a weighted average of all feature vectors.
+            #    Even if some images are "outliers", we still give them
+            #    a small weight for the next mean calculation.
+            # ---------------------------------------------------------
+            mu = np.average(all_features, axis=0, weights=scores)
+            
+            # ---------------------------------------------------------
+            # 3) Use scores to decide which images to "keep" for the next round
+            #    e.g., keep images whose score >= threshold
+            #    (assuming threshold is between 0 and 1)
+            # ---------------------------------------------------------
+            #logger.info(f"Debug: threshold: {threshold}")
+            #logger.info(f"DEBUG: scores: {scores}")
+            keep_indexes = np.where(scores >= threshold)[0]
+            
+            # print the number of images that were excluded + also indicate which image numbers were excluded:
+            logger.info(f"Round {r+1}: Excluded {len(images) - len(keep_indexes)} outliers")
+            # Also, print the average score:
+            logger.info(f"Round {r+1}: Average score: {np.mean(scores)}")
+            
+            # Get the name of the image we just exlcuded (i.e. the .jpg name):
+            excluded_images = [images[i] for i in range(len(images)) if i not in keep_indexes]
+            logger.info(f"Excluded images: {excluded_images}")
+            
+            #logger.info(f"DEBUG: keep_indexes: {keep_indexes}")
+            
+            cleaned_data = features[keep_indexes]  # these get used in next round if you want iterative shrinking
+            for i in keep_indexes:
                 results[r].append(images[i])
+                    
+            # Continue to reduce with each subsequent round
+            all_features = cleaned_data
 
     # For every round, open the appropriate file, access the tracklet, append the keep list, and close the file.
     # Before appending, check if it is empty. If not and user has supplied use_cache=False, overwrite it. Otherwise, skip.
@@ -149,8 +191,8 @@ if __name__ == "__main__":
     parser.add_argument('--current_tracklet_images_input_dir', help="Path to the raw images for the current tracklet", required=True)
     parser.add_argument('--current_tracklet_processed_data_dir', help="Path to the processed output data dir for the current tracklet", required=True)
     parser.add_argument('--common_processed_data_dir', help="Path to the shared processed data output for the test/train/challenge data", required=True)
-    parser.add_argument('--threshold', type=float, default=3.5, help="Offset threshold for (distance - mean_dist)")
-    parser.add_argument('--rounds', type=int, default=3, help="Number of rounds for iterative outlier filtering")
+    parser.add_argument('--threshold', type=float, default=config['SoccerNet']['gauss_filtered']['th'], help="Offset threshold for (distance - mean_dist)")
+    parser.add_argument('--rounds', type=int, default=config['SoccerNet']['gauss_filtered']['r'], help="Number of rounds for iterative outlier filtering")
     parser.add_argument('--suppress_logging', action='store_true', help="Suppress logging output")
     parser.add_argument('--use_cache', action='store_true', help="Flag to know if we should rebuild the cache or use it")
     args = parser.parse_args()

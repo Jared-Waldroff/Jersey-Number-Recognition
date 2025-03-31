@@ -21,6 +21,7 @@ from reid.CentroidsReidRepo.datasets.transforms.build import ReidTransforms
 from reid.CentroidsReidRepo.config.defaults import _C as cfg
 import torch.multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from DataProcessing.DataAugmentation import ImageEnhancement
 
 class ModelUniverse(Enum):
   REID_CENTROID = "REID"
@@ -45,6 +46,7 @@ class DataPaths(Enum):
     REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
     REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
     RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'legibility_resnet34_soccer_20240215.pth')
+    VIT_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'ViT' / 'vit_base_patch16_224_in21k_ft_svhn.pth')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
     PROCESSED_DATA_OUTPUT_DIR_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'test')
@@ -70,9 +72,7 @@ def _worker_fn(args):
     return track_name, features
 
 class DataPreProcessing:
-    def __init__(self, display_transformed_image_sample: bool=False, num_image_samples: int=1, suppress_logging: bool=False):
-        self.display_transformed_image_sample = display_transformed_image_sample
-        self.num_image_samples = num_image_samples
+    def __init__(self, display_transformed_image_sample: bool=False, suppress_logging: bool=False):
         self.suppress_logging = suppress_logging
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -80,6 +80,8 @@ class DataPreProcessing:
         logging = CustomLogger().get_logger()
 
         self.num_images_processed = 0
+        
+        self.image_enhancement = ImageEnhancement()
         
         if not self.suppress_logging:
             logging.info("DataPreProcessing initialized. Universe of available data paths:")
@@ -138,18 +140,32 @@ class DataPreProcessing:
 
         images = [img for img in os.listdir(track_path) if not img.startswith('.')]
         track_features = []
+
         for img_path in images:
             img_full_path = os.path.normpath(os.path.join(track_path, img_path))
             try:
-                # Load image using cv2 and convert to PIL format
                 img = cv2.imread(img_full_path)
                 if img is None:
                     continue
-                processed_image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                # Apply transforms
-                transformed = val_transforms(processed_image)  # returns a tensor
 
-                # Simply store the tensor (add a batch dimension for later concatenation)
+                # Convert BGR to RGB
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), values in [0, 1]
+
+                # Normalize using ImageNet stats
+                img_tensor = transforms.Normalize(
+                    mean=self.image_enhancement.mean.squeeze(),
+                    std=self.image_enhancement.std.squeeze()
+                )(img_tensor)
+
+                # Enhance using the custom image enhancement module
+                denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
+                img_tensor = self.image_enhancement.enhance_image(img_tensor)
+
+                # If val_transforms expects PIL input, convert back from tensor
+                img_pil = transforms.ToPILImage()(denorm_img)
+                transformed = val_transforms(img_pil)
+
                 track_features.append(transformed.unsqueeze(0))
             except Exception as e:
                 logging.info(f"Error processing {img_full_path}: {e}")
@@ -196,7 +212,7 @@ class DataPreProcessing:
         # Set up the transformation pipeline
         if classic_transform:
             val_transforms = transforms.Compose([
-                transforms.Resize((256, 256)),
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])

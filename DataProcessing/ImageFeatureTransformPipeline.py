@@ -13,11 +13,6 @@ import json
 import cv2
 import math
 
-# Limit concurrent GPU calls (example).
-# CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
-# This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
-GPU_SEMAPHORE = threading.Semaphore(value=1)
-
 class ImageFeatureTransformPipeline:
     def __init__(self,
                  raw_image_batch,
@@ -29,6 +24,7 @@ class ImageFeatureTransformPipeline:
                  run_soccer_ball_filter: bool,
                  generate_features: bool,
                  run_filter: bool,
+                 GPU_SEMAPHORE,
                  model_version='res50_market',
                  suppress_logging: bool=False,
                  use_cache: bool=True,
@@ -44,6 +40,7 @@ class ImageFeatureTransformPipeline:
         self.run_filter = run_filter
         self.parallelize = True
         self.image_batch_size = image_batch_size
+        self.GPU_SEMAPHORE = GPU_SEMAPHORE
         
         # AUTOMATIC BATCH SIZE DETERMINATION
         # Determine the number of batches
@@ -134,7 +131,7 @@ class ImageFeatureTransformPipeline:
         
         # Only use the semaphore if using CUDA.
         if with_cuda and self.use_cuda:
-            with GPU_SEMAPHORE:
+            with self.GPU_SEMAPHORE:
                 model = CTLModel.load_from_checkpoint(cfg.MODEL.PRETRAIN_PATH, cfg=cfg)
                 model.to('cuda')
         else:
@@ -155,7 +152,7 @@ class ImageFeatureTransformPipeline:
         with torch.no_grad():
             # Wrap entire inference loop in the GPU semaphore if using CUDA.
             if with_cuda and self.use_cuda:
-                context = GPU_SEMAPHORE
+                context = self.GPU_SEMAPHORE
             else:
                 # Use a dummy context manager if not using CUDA. This is just to modularize the code a bit
                 from contextlib import nullcontext

@@ -1,0 +1,15 @@
+# @package _global_
+data:
+  _target_: strhub.data.module.SceneTextDataModule
+  root_dir: ${abs_root}/dataset/soccernet
+  train_dir: ""
+  batch_size: ${model.batch_size}
+  img_size: ${model.img_size}
+  charset_train: ${model.charset_train}
+  charset_test: ${model.charset_test}
+  max_label_length: ${model.max_label_length}
+  remove_whitespace: true
+  normalize_unicode: true
+  augment: true
+  num_workers: 4
+  openai_meanstd: true
