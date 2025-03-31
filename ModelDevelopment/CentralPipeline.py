@@ -1245,9 +1245,7 @@ class CentralPipeline:
                 "features.npy",
                 "illegible_results.json",
                 "legible_results.json",
-                "main_subject_gauss_th=3.5_r=1.json",
-                "main_subject_gauss_th=3.5_r=2.json",
-                "main_subject_gauss_th=3.5_r=3.json",
+                "main_subject_gauss_th=0.97_r=1.json",
                 "soccer_ball.json"
             ]
             # If any one of them is missing, return False (i.e., do NOT skip)
