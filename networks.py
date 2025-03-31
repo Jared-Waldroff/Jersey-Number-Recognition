@@ -4,8 +4,7 @@ from torchvision import models
 from torchvision.models import ResNet34_Weights
 import torch
 
-
-# Baseline ResNet34 model
+# Baseline ResNet34 based
 class JerseyNumberClassifier(nn.Module):
 
     def __init__(self):
@@ -102,22 +101,17 @@ class LegibilityClassifier34(nn.Module):
         x = F.sigmoid(x)
         return x
 
-# ResNet18 based model for binary classification
+# VIT model for binary classification
 class LegibilityClassifierTransformer(nn.Module):
-    def __init__(self, train=False,  finetune=False):
+    def __init__(self, num_classes=10):
         super().__init__()
-        self.model_ft = models.vit_b_16(pretrained=True)
-        if finetune:
-            for param in self.model_ft.parameters():
-                param.requires_grad = False
-        num_ftrs = self.model_ft.heads.head.in_features
-        self.model_ft.heads.head = nn.Linear(num_ftrs, 1)
-        self.model_ft.heads.head.requires_grad = True
-
+        # Create the timm ViT model directly
+        self.model = timm.create_model("timm/vit_base_patch16_224.orig_in21k_ft_in1k", pretrained=False)
+        # Replace the head to match your number of classes
+        self.model.head = nn.Linear(self.model.head.in_features, num_classes)
+    
     def forward(self, x):
-        x = self.model_ft(x)
-        x = F.sigmoid(x)
-        return x
+        return self.model(x)
 
 # Classifier Model
 class LegibilitySimpleClassifier(nn.Module):
@@ -197,9 +191,8 @@ class CustomCNN(nn.Module):
         v = self.fc(v)
         v = self.bn_final(v)
 
-        # To maintain the same interface as CTLModel from centroids-reid
+        # To maintain the same interface as CTLModel from CentroidsReidRepo
         return x, v
-    
 
 class FPNResNet34(nn.Module):
     def __init__(self, pretrained=True, num_classes=100):  # 100 jersey numbers (0-99)
