@@ -3,6 +3,8 @@
 # Handles processing output from the CLIP4STR model
 
 import os
+os.environ["MPLBACKEND"] = "Agg"
+
 import json
 import sys
 import subprocess

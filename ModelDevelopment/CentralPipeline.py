@@ -899,12 +899,13 @@ class CentralPipeline:
 
         # Build references to the CLIP4STR code and environment
         clip4str_dir = os.path.join(os.getcwd(), "str", "CLIP4STR")
-        model_path = os.path.join(clip4str_dir, "pretrained", "clip", "clip4str_huge_3e942729b1.pt")
-        clip_pretrained = os.path.join(clip4str_dir, "pretrained", "clip", "appleDFN5B-CLIP-ViT-H-14.bin")
+        model_path = DataPaths.ENHANCED_STR_MAIN.value
+        clip_pretrained = DataPaths.ENHANCED_STR_OPEN_CLIP.value
         read_script_path = os.path.join(clip4str_dir, "read.py")
 
         # Path to Python executable (in your clip4str_env)
-        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
+        #python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
+        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "clip4str_py39", "python.exe")
 
         # Environment variables for the subprocess
         env = os.environ.copy()
