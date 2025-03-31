@@ -388,6 +388,82 @@ def run(image_paths, model_path, threshold=0.5, arch='resnet18'):
     return results
 
 
+def run_ensemble(image_paths, resnet_model_path, vit_model_path, threshold=0.4, ensemble_method='avg'):
+    """
+    Run ensemble of ResNet34 and ViT models for better legibility classification.
+
+    Args:
+        image_paths: List of paths to images
+        resnet_model_path: Path to trained ResNet34 model
+        vit_model_path: Path to trained ViT model
+        threshold: Threshold for binary decision (lower than standard 0.5)
+        ensemble_method: How to combine predictions ('avg', 'max', or 'weighted')
+
+    Returns:
+        List of binary predictions
+    """
+    # Set device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # Setup data
+    dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch='resnet34')
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)
+
+    # Load ResNet model
+    resnet_state_dict = torch.load(resnet_model_path, map_location=device)
+    resnet_model = LegibilityClassifier34()
+    if hasattr(resnet_state_dict, '_metadata'):
+        del resnet_state_dict._metadata
+    resnet_model.load_state_dict(resnet_state_dict)
+    resnet_model = resnet_model.to(device)
+    resnet_model.eval()
+
+    # Load ViT model
+    vit_state_dict = torch.load(vit_model_path, map_location=device)
+    vit_model = LegibilityClassifierTransformer()
+    if hasattr(vit_state_dict, '_metadata'):
+        del vit_state_dict._metadata
+    vit_model.load_state_dict(vit_state_dict)
+    vit_model = vit_model.to(device)
+    vit_model.eval()
+
+    # Run inference with both models
+    resnet_results = []
+    vit_results = []
+
+    with torch.no_grad():
+        for inputs in dataloader:
+            inputs = inputs.to(device)
+
+            # Get ResNet predictions
+            resnet_outputs = resnet_model(inputs)
+            resnet_preds = resnet_outputs.cpu().numpy().flatten().tolist()
+            resnet_results.extend(resnet_preds)
+
+            # Get ViT predictions
+            vit_outputs = vit_model(inputs)
+            vit_preds = vit_outputs.cpu().numpy().flatten().tolist()
+            vit_results.extend(vit_preds)
+
+    # Combine predictions based on chosen method
+    final_results = []
+    for i in range(len(resnet_results)):
+        if ensemble_method == 'avg':
+            score = (resnet_results[i] + vit_results[i]) / 2.0
+        elif ensemble_method == 'max':
+            score = max(resnet_results[i], vit_results[i])
+        elif ensemble_method == 'weighted':
+            # Give slightly more weight to VIT (adjust weights as needed)
+            score = 0.4 * resnet_results[i] + 0.6 * vit_results[i]
+
+        # Apply threshold
+        final_results.append(1 if score > threshold else 0)
+
+    return final_results
+
+
+
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 cudnn.benchmark = True
 
@@ -405,7 +481,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    annotations_file = '_gt.txt'
+    annotations_file = '_gt.json'
     use_full_validation = (not args.full_val_dir is None) and (len(args.full_val_dir) > 0)
 
     image_dataset_train = JerseyNumberLegibilityDataset(os.path.join(args.data, 'train', 'train' + annotations_file),
