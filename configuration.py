@@ -9,6 +9,9 @@ str_platform = 'cu113'
 reid_env = 'centroids'
 reid_script = 'centroid_reid.py'
 
+# New environment for CLIP4STR
+clip4str_env = 'clip4str'
+
 reid_home = 'reid/'
 
 
@@ -17,7 +20,7 @@ dataset = {'SoccerNet':
                  'working_dir': './out/SoccerNetResults',
                  # GLOBAL PARAMS: These are separated by the test/train/challenge dirs anyways so name can be the same.
                  'sim_filtered': 'main_subject_0.4.json',
-                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 3.5, 'r': 3},
+                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 0.97, 'r': 1},
                  'soccer_ball_list': 'soccer_ball.json',
                  'legible_result': 'legible_results.json',
                  'illegible_result': 'illegible_results.json',
@@ -25,6 +28,9 @@ dataset = {'SoccerNet':
                  'pose_output_json': 'pose_results.json',
                  'crops_folder': 'crops',
                  'jersey_id_result': 'jersey_id_results.json',
+                 'clip4str_model': 'data/pre_trained_models/str/clip4str_huge_3e942729b1.pt',
+                 'str_results_file': 'str_results.json',
+                 'clpip4str_results_file': 'clip4str_results.json',
                  'final_result': 'final_results.json',
                  'test': {
                         'images': 'test/images',
@@ -88,7 +94,7 @@ dataset = {'SoccerNet':
                  'numbers_data': 'lmdb',
 
                  'legibility_model': "models/legibility_resnet34_soccer_20240215.pth",
-                 'legibility_model_arch': "resnet34",
+                 'legibility_model_arch': "resnet34", #vit
 
                  'legibility_model_url':  "https://drive.google.com/uc?id=18HAuZbge3z8TSfRiX_FzsnKgiBs-RRNw",
                  'pose_model_url': 'https://drive.google.com/uc?id=1A3ftF118IcxMn_QONndR-8dPWpf7XzdV',
