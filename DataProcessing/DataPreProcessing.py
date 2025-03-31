@@ -133,11 +133,7 @@ class DataPreProcessing:
             
         return tracks, max_track
   
-    def process_single_track(self, track, input_folder, val_transforms):
-        """
-        Process one tracklet (i.e. one directory of images) and return a tuple (track, processed_data)
-        where processed_data is either a tensor (if load_only) or a numpy array of features.
-        """
+    def process_single_track(self, track, input_folder, val_transforms, enhance_image=False):
         track_path = os.path.normpath(os.path.join(input_folder, track))
         if not os.path.isdir(track_path):
             return None  # Skip non-directory
@@ -152,9 +148,9 @@ class DataPreProcessing:
                 if img is None:
                     continue
 
-                # Convert BGR to RGB
+                # Convert BGR -> RGB
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), values in [0, 1]
+                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), in [0, 1]
 
                 # Normalize using ImageNet stats
                 img_tensor = transforms.Normalize(
@@ -162,15 +158,20 @@ class DataPreProcessing:
                     std=self.image_enhancement.std.squeeze()
                 )(img_tensor)
 
-                # Enhance using the custom image enhancement module
+                # Optionally enhance the *normalized* tensor
+                if enhance_image:
+                    img_tensor = self.image_enhancement.enhance_image(img_tensor)
+
+                # Now denormalize the final tensor (enhanced or not) for val_transforms
                 denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
-                img_tensor = self.image_enhancement.enhance_image(img_tensor)
-
-                # If val_transforms expects PIL input, convert back from tensor
+                
+                # Convert to PIL
                 img_pil = transforms.ToPILImage()(denorm_img)
-                transformed = val_transforms(img_pil)
 
+                # Apply your val_transforms
+                transformed = val_transforms(img_pil)
                 track_features.append(transformed.unsqueeze(0))
+
             except Exception as e:
                 logging.info(f"Error processing {img_full_path}: {e}")
                 continue

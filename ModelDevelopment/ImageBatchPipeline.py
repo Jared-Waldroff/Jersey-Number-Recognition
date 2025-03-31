@@ -116,7 +116,7 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=False):
+    def pass_through_legibility_classifier(self, use_filtered=False, filter='gauss', exclude_balls=False):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         # DO NOT USE: Caching is now controlled in CentralPipeline

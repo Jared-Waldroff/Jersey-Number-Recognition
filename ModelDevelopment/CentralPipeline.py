@@ -717,41 +717,59 @@ class CentralPipeline:
 
     def run_crops_model(self):
         """
-        Runs the crops model for a single tracklet (no parallelization).
+        Runs the crops model for all tracklets (sequentially).
         """
         # Ensure we have up-to-date legibility results
         self.aggregate_legibility_results_data()
         self.set_legibility_arrays()
 
-        # Example: pick the first tracklet from your list (or use a specific one)
-        # If you intend to handle multiple tracklets separately, call
-        # run_crops_model() in a loop outside or pass tracklet as an argument.
+        # If no tracklets to process, nothing to do.
         if not self.legible_tracklets_list:
             self.logger.warning("No tracklets found; nothing to do.")
             return
 
-        tracklet = self.legible_tracklets_list[0]
-        tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
-        output_json = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['pose_output_json'])
-        crops_destination_dir = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['crops_folder'])
+        # Prepare aggregated counters for all tracklets
+        aggregated_skipped = {}
+        aggregated_saved = []
 
-        # Ensure the crops folder exists
-        Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
+        # Process each tracklet in a simple for-loop
+        for tracklet in tqdm(self.legible_tracklets_list, desc="Generating crops for tracklets", leave=True):
+            tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
+            output_json = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['pose_output_json'])
+            crops_destination_dir = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['crops_folder'])
 
-        # Call generate_crops once
-        try:
-            skipped, saved = self.generate_crops(
-                json_file=output_json,
-                crops_destination_dir=crops_destination_dir
-            )
+            # Ensure the crops folder exists
+            Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
+            
+            # Build the all_legible for JUST this tracklet
+            tracklet_legible_paths = self.loaded_legible_results.get(tracklet, [])
+            all_legible_for_this_tracklet = [os.path.basename(p) for p in tracklet_legible_paths]
 
-            # Log or return aggregated results
-            self.logger.info(f"Done generating crops for tracklet {tracklet}.")
-            self.logger.info(f"Skipped dictionary: {skipped}")
-            self.logger.info(f"Total saved images: {len(saved)}")
+            try:
+                # Call generate_crops for this single tracklet
+                skipped, saved = self.generate_crops(
+                    json_file=output_json,
+                    crops_destination_dir=crops_destination_dir,
+                    all_legible=all_legible_for_this_tracklet
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error running crop generation for tracklet {tracklet}: {e}")
+                # Log partial results
+                self.logger.info(f"Done generating crops for tracklet {tracklet}.")
+                self.logger.info(f"Skipped dictionary for {tracklet}: {skipped}")
+                self.logger.info(f"Total saved images for {tracklet}: {len(saved)}")
+
+                # Merge the per-tracklet results into aggregated counters
+                for tr, count in skipped.items():
+                    aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
+                aggregated_saved.extend(saved)
+
+            except Exception as e:
+                self.logger.error(f"Error running crop generation for tracklet {tracklet}: {e}")
+
+        # After processing all tracklets, log final aggregated results
+        self.logger.info("Done generating crops (sequential) for all tracklets.")
+        self.logger.info(f"Aggregated skipped: {aggregated_skipped}")
+        self.logger.info(f"Total saved across all tracklets: {len(aggregated_saved)}")
         
     def run_str_model(self):
         self.logger.info("Predicting numbers")
