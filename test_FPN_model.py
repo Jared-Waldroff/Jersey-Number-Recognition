@@ -13,7 +13,10 @@ from sklearn.metrics import precision_score, recall_score, f1_score, average_pre
 ############################################################################################################################################################################
 Run the following command in the terminal to test the FPN ResNet model:
 
+TestforFPNModel
+
 python test_fpn_model.py --model_path ResNetModels\fpn_resnet34_epoch10_model.pth --image_dir data\SoccerNet\jersey-2023\processed_data\test\common_data\crops\imgs --output_file predictions.json --illegible_file data\SoccerNet\jersey-2023\processed_data\test\common_data\illegible_results.json --ground_truth_file data\SoccerNet\jersey-2023\extracted\test\test_gt.json
+
 #############################################################################################################################################################################
 '''
 
