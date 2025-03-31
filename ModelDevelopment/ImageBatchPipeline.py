@@ -121,7 +121,8 @@ class ImageBatchPipeline:
 
         self.logger.info(f"Saved {task} to: {path}")
 
-    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True):
+    def pass_through_legibility_classifier(self, use_filtered=True, filter='gauss', exclude_balls=True,
+                                           use_ensemble=False, ensemble_method='weighted', threshold=0.3):
         self.logger.info("Classifying legibility of image(s) using pre-trained model.")
         
         # DO NOT USE: Caching is now controlled in CentralPipeline
@@ -134,27 +135,30 @@ class ImageBatchPipeline:
         #     if os.path.exists(legible_results_path) and os.path.exists(illegible_results_path):
         #         self.logger.info("Using existing cache for legibility classifier. Skipping.")
         #         return
-        
+
         if use_filtered:
-            if filter == 'sim': # Do not use
-                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['sim_filtered'])
+            if filter == 'sim':  # Do not use
+                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path,
+                                                      config.dataset['SoccerNet']['sim_filtered'])
             else:
                 # Access the params from the config and determine which data file to pull from
                 gauss_config = config.dataset['SoccerNet']['gauss_filtered']
                 filename = gauss_config['filename']
-                threshold = gauss_config['th']
+                threshold_gauss = gauss_config['th']
                 rounds = gauss_config['r']
-                gaussian_filter_lookup_table = f"{filename}_th={threshold}_r={rounds}.json"
-            
-                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path, gaussian_filter_lookup_table)
-            
+                gaussian_filter_lookup_table = f"{filename}_th={threshold_gauss}_r={rounds}.json"
+
+                path_to_filter_results = os.path.join(self.output_tracklet_processed_data_path,
+                                                      gaussian_filter_lookup_table)
+
             with open(path_to_filter_results, 'r') as f:
                 filtered = json.load(f)
 
         if exclude_balls:
             updated_tracklets = []
-            soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['soccer_ball_list'])
-            
+            soccer_ball_list = os.path.join(self.output_tracklet_processed_data_path,
+                                            config.dataset['SoccerNet']['soccer_ball_list'])
+
             # Check if the soccer_ball_list even exists first, and if not, skip
             if not os.path.exists(soccer_ball_list):
                 self.logger.warning("No soccer ball list found. Skipping exclusion of soccer balls.")
@@ -167,31 +171,75 @@ class ImageBatchPipeline:
                     if not track in ball_list:
                         updated_tracklets.append(track)
                 self.tracklets_to_process = self.tracklets_to_process
-                
+
         if use_filtered:
             images = filtered[self.current_tracklet_number]
         else:
             # Otherwise no keep list, just all of them
             images = os.listdir(self.input_data_path)
-        
+
         # images_full_path is either filtered down now or just all images
         images_full_path = [os.path.join(self.input_data_path, self.current_tracklet_number, str(x)) for x in images]
 
-        # Ship these images over to the legibility classifier
-        track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value, arch=config.dataset['SoccerNet']['legibility_model_arch'], threshold=0.5)
+        # ENHANCEMENT: Add ensemble model option
+        if use_ensemble:
+            # Use both ResNet and ViT models for improved accuracy
+            self.logger.info(f"Using ensemble approach with method: {ensemble_method}")
+
+            # Get paths to models
+            resnet_model_path = DataPaths.RESNET_MODEL.value
+            vit_model_path = getattr(DataPaths, 'VIT_MODEL', DataPaths.RESNET_MODEL).value
+
+            # Check if VIT model exists, otherwise log warning and fall back
+            if not os.path.exists(vit_model_path):
+                self.logger.warning(f"ViT model not found at {vit_model_path}. Falling back to single model.")
+                track_results = lc.run(images_full_path, resnet_model_path,
+                                       arch=config.dataset['SoccerNet']['legibility_model_arch'],
+                                       threshold=threshold)
+            else:
+                # Run ensemble prediction
+                try:
+                    track_results = lc.run_ensemble(
+                        images_full_path,
+                        resnet_model_path,
+                        vit_model_path,
+                        threshold=threshold,
+                        ensemble_method=ensemble_method
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error running ensemble model: {e}. Falling back to single model.")
+                    track_results = lc.run(images_full_path, resnet_model_path,
+                                           arch=config.dataset['SoccerNet']['legibility_model_arch'],
+                                           threshold=threshold)
+        else:
+            # Original single model approach
+            self.logger.info(f"Using single model with threshold: {threshold}")
+            track_results = lc.run(images_full_path, DataPaths.RESNET_MODEL.value,
+                                   arch=config.dataset['SoccerNet']['legibility_model_arch'],
+                                   threshold=threshold)
+
+        # Find indices of legible images
         legible = list(np.nonzero(track_results))[0]
-        
-        if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls):
-            self.logger.info(f"Tracklet {self.current_tracklet_number} is illegible.")
+
+        # ENHANCEMENT: Add more lenient track evaluation (minimum percentage)
+        min_legible_percentage = 0.05  # Consider track legible if at least 5% of images are legible
+        if len(legible) == 0 or (len(updated_tracklets) < 1 and exclude_balls) or \
+                (len(legible) / len(images) < min_legible_percentage and len(images) > 10):
+            self.logger.info(
+                f"Tracklet {self.current_tracklet_number} is illegible. Found {len(legible)}/{len(images)} legible images.")
             self.illegible_tracklets.append(self.current_tracklet_number)
         else:
             legible_images = [images_full_path[i] for i in legible]
             self.legible_tracklets[self.current_tracklet_number] = legible_images
-                
+            self.logger.info(
+                f"Tracklet {self.current_tracklet_number} is legible. Found {len(legible)}/{len(images)} legible images.")
+
         # Create dir under output_processed_data_path
-        legible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['legible_result'])
-        illegible_results_path = os.path.join(self.output_tracklet_processed_data_path, config.dataset['SoccerNet']['illegible_result'])
-        
+        legible_results_path = os.path.join(self.output_tracklet_processed_data_path,
+                                            config.dataset['SoccerNet']['legible_result'])
+        illegible_results_path = os.path.join(self.output_tracklet_processed_data_path,
+                                              config.dataset['SoccerNet']['illegible_result'])
+
         # NOTE: When saving results, save them to the lookup table at the appropriate key (this tracklet)
         self.save_json_results(legible_results_path, self.legible_tracklets, "legible_tracklets")
         self.save_json_results(illegible_results_path, self.illegible_tracklets, "illegible_tracklets")
