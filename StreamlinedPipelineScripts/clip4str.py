@@ -108,97 +108,97 @@ def log_sample_results(results_dict, logger, sample_count=5):
 
 
 def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretrained_path,
-                           images_dir, result_file, logger, env=None, batch_size=50):
+                           images_dir, result_file, logger, env=None):
     """
-    Run the CLIP4STR model for inference in batches.
-    
+    Run the CLIP4STR model for inference.
+
     Args:
-        python_path (str): Path to the Python executable.
-        read_script_path (str): Path to the read.py script.
-        model_path (str): Path to the CLIP4STR model.
-        clip_pretrained_path (str): Path to the pretrained CLIP model.
-        images_dir (str): Path to the directory containing images.
-        result_file (str): Path to save the aggregated results.
-        logger: Logger for output.
-        env (dict): Environment variables.
-        batch_size (int): Number of images to process per batch.
-        
+        python_path (str): Path to the Python executable
+        read_script_path (str): Path to the read.py script
+        model_path (str): Path to the CLIP4STR model
+        clip_pretrained_path (str): Path to the pretrained CLIP model
+        images_dir (str): Path to the directory containing images
+        result_file (str): Path to save the results
+        logger: Logger for output
+        env (dict): Environment variables
+
     Returns:
-        bool: True if successful, False otherwise.
+        bool: True if successful, False otherwise
     """
+    if not os.path.exists(model_path):
+        logger.error(f"CLIP4STR model not found: {model_path}")
+        return False
+
+    if not os.path.exists(clip_pretrained_path):
+        logger.error(f"Pretrained CLIP model not found: {clip_pretrained_path}")
+        return False
+
+    # Set default environment if none provided
     if env is None:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-    
-    # Get all image files in the provided directory.
-    image_files = [f for f in os.listdir(images_dir)
-                   if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    if not image_files:
-        logger.error(f"No image files found in {images_dir}")
+
+    # Command to run the read.py script
+    command = [
+        python_path,
+        read_script_path,
+        model_path,
+        f"--images_path={images_dir}",
+        "--device=cuda",
+        f"--clip_pretrained={clip_pretrained_path}"
+    ]
+
+    logger.info(f"Running command: {' '.join(command)}")
+
+    try:
+        # Capture stdout but don't display it
+        result = subprocess.run(command,
+                                stdout=subprocess.PIPE,  # Capture but don't print
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                check=True,
+                                encoding='utf-8',
+                                errors='replace',
+                                env=env)
+
+        # Only log the stderr (warnings/errors) if any
+        if result.stderr:
+            logger.error(result.stderr)
+
+        # Parse the output (we need result.stdout for this)
+        results_dict = parse_output(result.stdout)
+
+        # Make sure the output directory exists
+        os.makedirs(os.path.dirname(result_file), exist_ok=True)
+
+        # Save results as JSON
+        with open(result_file, 'w') as f:
+            json.dump(results_dict, f, indent=2)
+
+        logger.info(f"Saved {len(results_dict)} jersey number predictions to {result_file}")
+
+        # Log a sample of results
+        log_sample_results(results_dict, logger)
+
+        # We've removed this to keep terminal clean
+        # logger.info(result.stdout)
+
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running CLIP4STR model: {e}")
+        logger.info(f"STDOUT: {e.stdout}" if e.stdout else "No stdout output")
+        logger.error(f"STDERR: {e.stderr}" if e.stderr else "No stderr output")
+
+        # Create an empty results file if it doesn't exist
+        if not os.path.exists(result_file):
+            os.makedirs(os.path.dirname(result_file), exist_ok=True)
+            with open(result_file, 'w') as f:
+                json.dump({}, f)
+            logger.warning(f"Created empty results file: {result_file}")
+
         return False
-
-    # Split images into batches.
-    batches = [image_files[i:i + batch_size] for i in range(0, len(image_files), batch_size)]
-    logger.info(f"Processing {len(image_files)} images in {len(batches)} batches (batch size = {batch_size})")
-
-    aggregated_results = {}
-
-    # Process each batch sequentially.
-    for i, batch in enumerate(tqdm(batches, desc="Processing batches", unit="batch")):
-        # Create a temporary directory for the current batch.
-        batch_temp_dir = os.path.join(images_dir, f"temp_batch_{i}")
-        os.makedirs(batch_temp_dir, exist_ok=True)
-
-        # Copy the batch images to the temporary directory.
-        for img in batch:
-            shutil.copy(os.path.join(images_dir, img), os.path.join(batch_temp_dir, img))
-        
-        # Build the command for inference on the current batch.
-        command = [
-            python_path,
-            read_script_path,
-            model_path,
-            f"--images_path={batch_temp_dir}",
-            "--device=cuda",
-            f"--clip_pretrained={clip_pretrained_path}"
-        ]
-        logger.info(f"Batch {i}: Running command: {' '.join(command)}")
-
-        try:
-            result = subprocess.run(command,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True,
-                                    check=True,
-                                    env=env)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Batch {i}: Error running inference: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-            # Clean up and continue with the next batch.
-            shutil.rmtree(batch_temp_dir, ignore_errors=True)
-            continue
-
-        # Parse the output using your existing parse_output function.
-        batch_results = parse_output(result.stdout)
-        aggregated_results.update(batch_results)
-        
-        # Clean up the temporary batch directory.
-        shutil.rmtree(batch_temp_dir, ignore_errors=True)
-        
-        # Optionally, free up memory explicitly.
-        try:
-            import gc
-            gc.collect()
-        except Exception:
-            pass
-
-    # Ensure the directory for result_file exists and save the aggregated results.
-    os.makedirs(os.path.dirname(result_file), exist_ok=True)
-    with open(result_file, 'w') as f:
-        json.dump(aggregated_results, f, indent=2)
-
-    logger.info(f"Saved {len(aggregated_results)} results to {result_file}")
-    return True
 
 
 def run_parallel_clip4str_inference(python_path, read_script_path, model_path, clip_pretrained_path,
