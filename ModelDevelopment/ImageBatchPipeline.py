@@ -78,7 +78,7 @@ class ImageBatchPipeline:
         self.illegible_tracklets = []
         
         # Preprocess the image(s) via the transform pipeline.
-        #self.image_feature_transform.run_image_transform_pipeline()
+        self.image_feature_transform.run_image_transform_pipeline()
         
         # NOTE: This is not the image after it was passed through the image transform pipeline because we cannot visualize that.
         if self.display_transformed_image_sample:
