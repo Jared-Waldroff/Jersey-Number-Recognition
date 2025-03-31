@@ -452,7 +452,7 @@ class CentralPipeline:
         """
         self.logger.info("Generating json for pose")
         self.aggregate_legibility_results_data()
-        self.set_legibility_arrays()
+        #self.set_legibility_arrays()
 
         num_messages = 0
 
@@ -721,7 +721,7 @@ class CentralPipeline:
         """
         # Ensure we have up-to-date legibility results
         self.aggregate_legibility_results_data()
-        self.set_legibility_arrays()
+        #self.set_legibility_arrays()
 
         # If no tracklets to process, nothing to do.
         if not self.tracklets_to_process:
@@ -774,7 +774,7 @@ class CentralPipeline:
     def run_str_model(self):
         self.logger.info("Predicting numbers")
         self.aggregate_legibility_results_data()
-        self.set_legibility_arrays()
+        #self.set_legibility_arrays()
         
         # Ensure correct working directory.        
         os.chdir(str(Path.cwd().parent.parent))
@@ -909,7 +909,7 @@ class CentralPipeline:
         """
         self.logger.info("Predicting numbers using parallel CLIP4STR model")
         self.aggregate_legibility_results_data()
-        self.set_legibility_arrays()
+        #self.set_legibility_arrays()
 
         # Ensure correct working directory
         os.chdir(str(Path.cwd().parent.parent))
@@ -1153,7 +1153,7 @@ class CentralPipeline:
         
     def combine_results(self):
         self.aggregate_legibility_results_data()
-        self.set_legibility_arrays()
+        #self.set_legibility_arrays()
         
         # 8. Combine tracklet results
         # Process global STR predictions (results_dict) and get analysis results.
