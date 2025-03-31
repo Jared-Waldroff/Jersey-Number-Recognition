@@ -756,7 +756,7 @@ class CentralPipeline:
         num_parallel_workers = self.num_workers
         batch_size = self.image_batch_size
 
-        self.gpu_semaphore = threading.Semaphore(value=2)
+        self.gpu_semaphore = threading.Semaphore(value=1)
 
         success = clip4str_module.run_parallel_clip4str_inference(
             python_path=python_exe,
