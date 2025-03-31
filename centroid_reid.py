@@ -12,7 +12,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ROOT = './reid/centroids-reid/'
+ROOT = './reid/CentroidsReidRepo/'
 sys.path.append(str(ROOT))  # add ROOT to PATH
 
 import numpy as np
