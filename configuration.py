@@ -20,7 +20,7 @@ dataset = {'SoccerNet':
                  'working_dir': './out/SoccerNetResults',
                  # GLOBAL PARAMS: These are separated by the test/train/challenge dirs anyways so name can be the same.
                  'sim_filtered': 'main_subject_0.4.json',
-                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 0.999, 'r': 3},
+                 'gauss_filtered': {'filename': 'main_subject_gauss', 'th': 0.98, 'r': 1},
                  'soccer_ball_list': 'soccer_ball.json',
                  'legible_result': 'legible_results.json',
                  'illegible_result': 'illegible_results.json',
