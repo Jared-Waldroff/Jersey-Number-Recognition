@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 from jersey_number_dataset import JerseyNumberLegibilityDataset, UnlabelledJerseyNumberLegibilityDataset, TrackletLegibilityDataset
 from networks import LegibilityClassifier, LegibilitySimpleClassifier, LegibilityClassifier34, LegibilityClassifierTransformer
 
+import logging
+
 import time
 import copy
 import argparse
@@ -342,48 +344,121 @@ def test_model(model, subset, result_path=None):
 
     return epoch_acc
 
+def wrap_state_dict_keys(state_dict, prefix='model'):
+    return {f'{prefix}.{k}': v for k, v in state_dict.items()}
+
+def __getitem__(self, idx):
+    img_path = self.image_paths[idx]
+    img = Image.open(img_path).convert('RGB')
+    img = self.transform(img)
+    return img, img_path
 
 # run inference on a list of files
-def run(image_paths, model_path, threshold=0.5, arch='resnet18'):
-    # setup data
+def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4,
-                                                  shuffle=False, num_workers=4)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    cudnn.benchmark = True
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)
 
-    #load model
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # Load model
     state_dict = torch.load(model_path, map_location=device)
+
     if arch == 'resnet18':
         model_ft = LegibilityClassifier()
     elif arch == 'vit':
-        model_ft = LegibilityClassifierTransformer()
+        model_ft = LegibilityClassifierTransformer(num_classes=1) # Used as a binary classifier
     else:
         model_ft = LegibilityClassifier34()
+        
+    if arch == 'vit':
+        state_dict = wrap_state_dict_keys(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
+    else:
+        if hasattr(state_dict, '_metadata'):
+            del state_dict._metadata
+        model_ft.load_state_dict(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
 
-    if hasattr(state_dict, '_metadata'):
-        del state_dict._metadata
-    model_ft.load_state_dict(state_dict)
-    model_ft = model_ft.to(device)
-    model_ft.eval()
-
-    # run classifier
     results = []
+    raw_outputs = []
+    raw_outputs_kept = []
+
     for inputs in dataloader:
-        # print(f"input and label sizes:{len(inputs), len(labels)}")
         inputs = inputs.to(device)
+        with torch.no_grad():
+            outputs = model_ft(inputs)
 
-        # zero the parameter gradients
-        torch.set_grad_enabled(False)
-        outputs = model_ft(inputs)
+            if arch == 'vit':
+                probs = torch.softmax(outputs, dim=1)  # shape: (batch_size, 2)
+                confidence = probs
+                outputs = (confidence > threshold).float()
+            else:
+                if threshold > 0:
+                    # Convert outputs to a NumPy array for safe indexing
+                    outputs_array = outputs.cpu().numpy()
+                    
+                    # Handle raw values, whether 0D or multi-dimensional
+                    if outputs_array.ndim == 0:
+                        # 0D array → single scalar
+                        raw_values = [outputs_array.item()]
+                    else:
+                        raw_values = outputs_array.flatten().tolist()
+                    
+                    raw_outputs.append(raw_values)
+                    
+                    # Now find values above threshold (in the NumPy array)
+                    mask = (outputs_array > threshold)
+                    if mask.ndim == 0:
+                        kept_values = [outputs_array.item()] if mask else []
+                    else:
+                        kept_values = outputs_array[mask].flatten().tolist()
+                    
+                    raw_outputs_kept.append(kept_values)
 
-        if threshold > 0:
-            outputs = (outputs>threshold).float()
+                    # Finally, update `outputs` to the thresholded version for final preds
+                    outputs = torch.from_numpy((outputs_array > threshold).astype(float)).to(device)
+                else:
+                    outputs = outputs.float()
+
+        preds = outputs.cpu().detach().numpy().flatten().tolist()
+        results += preds
+
+    # Now compute median / average / max for raw_outputs
+    if raw_outputs and any(batch for batch in raw_outputs):
+        flat_raw_outputs = np.concatenate([np.array(batch) for batch in raw_outputs])
+        if len(flat_raw_outputs) > 0:
+            median_output = np.median(flat_raw_outputs)
+            average_output = np.mean(flat_raw_outputs)
+            max_output = np.max(flat_raw_outputs)
         else:
-            outputs = outputs.float()
-        preds = outputs.cpu().detach().numpy()
-        flattened_preds = preds.flatten().tolist()
-        results += flattened_preds
+            median_output = average_output = max_output = 0.0
+    else:
+        flat_raw_outputs = np.array([])
+        median_output = average_output = max_output = 0.0
+
+    # Compute median / average / max for the kept outputs
+    if raw_outputs_kept and any(batch for batch in raw_outputs_kept):
+        flat_raw_outputs_kept = np.concatenate([np.array(batch) for batch in raw_outputs_kept])
+        if len(flat_raw_outputs_kept) > 0:
+            median_output_kept = np.median(flat_raw_outputs_kept)
+            average_output_kept = np.mean(flat_raw_outputs_kept)
+            max_output_kept = np.max(flat_raw_outputs_kept)
+        else:
+            median_output_kept = average_output_kept = max_output_kept = 0.0
+    else:
+        flat_raw_outputs_kept = np.array([])
+        median_output_kept = average_output_kept = max_output_kept = 0.0
+
+    logging.info(
+        f"Median vs. average vs. max of raw outputs (thresh={threshold}): "
+        f"{median_output}, {average_output}, {max_output}"
+    )
+    logging.info(
+        f"Median vs. average vs. max of kept outputs (thresh={threshold}): "
+        f"{median_output_kept}, {average_output_kept}, {max_output_kept}"
+    )
 
     return results
 
