@@ -20,9 +20,8 @@ sys.path.append(os.getcwd())
 from DataProcessing.Logger import CustomLogger
 
 # Now CD into pose
-os.chdir('./pose/ViTPose/')
+os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/')
 print(f"(prextcoco) Current working directory: {os.getcwd()}", flush=True)
-#os.chdir('C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/pose/ViTPose/')
 
 print("Current working directory: ", os.getcwd())
 
