@@ -209,6 +209,7 @@ class CentralPipeline:
                  image_batch_size: int = 200,
                  num_threads_multiplier: int = 3,
                  tracklets_to_process_override: list = None,
+                 use_image_enhancement: bool = False
                  ):
         self.gpu_semaphore = None
         self.input_data_path = input_data_path
@@ -227,6 +228,7 @@ class CentralPipeline:
         self.image_batch_size = image_batch_size
         self.num_threads_multiplier = num_threads_multiplier
         self.tracklets_to_process_override = tracklets_to_process_override
+        self.use_image_enhancement = use_image_enhancement
         
         # If tracklets_to_process_override is a series of ints, convert them to strings
         if self.tracklets_to_process_override is not None and isinstance(self.tracklets_to_process_override, list):
@@ -278,6 +280,8 @@ class CentralPipeline:
         # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
         # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
         self.GPU_SEMAPHORE = threading.Semaphore(value=1)
+        
+        self.image_enhancement = ImageEnhancement()
         
     def init_legibility_classifier_data_file(self):
         self.logger.info("Creating placeholder data files for Legibility Classifier.")
@@ -597,22 +601,20 @@ class CentralPipeline:
     def process_crop(self, entry, all_legible, crops_destination_dir):
         """
         Process a single pose result entry: if the image is in the keep list (all_legible),
-        compute a crop based on the pose keypoints and save the cropped image.
+        compute a crop based on the pose keypoints and optionally enhance it.
         
-        Returns a dictionary with keys:
-        - "skipped": a dict (possibly empty) with counts per track (derived from image name)
-        - "saved": a list of image names that were successfully cropped and saved
-        - "miss": count (0 or 1) for this entry if it was skipped due to unreliable points or wrong shape.
+        Returns a dictionary with:
+        - "skipped": a dict (possibly empty) with counts per track
+        - "saved": list of image names successfully processed
+        - "miss": count of skipped entries due to invalid conditions
         """
         filtered_points = self.get_points(entry)
         img_name = entry["img_name"]
         base_name = os.path.basename(img_name)
 
-        # Skip this entry if the image isn’t in the legible list.
         if base_name not in all_legible:
             return None
 
-        # If no valid keypoints, count as a miss.
         if len(filtered_points) == 0:
             print(f"skipping {img_name}, unreliable points")
             tr = base_name.split('_')[0]
@@ -640,9 +642,33 @@ class CentralPipeline:
             tr = base_name.split('_')[0]
             return {"skipped": {tr: 1}, "saved": [], "miss": 1}
 
+        # ========== Optional Enhancement ==========
+        if getattr(self, "use_image_enhancement", False):
+            # ------------------------------------------------
+            # 1) Convert OpenCV crop (BGR) -> RGB -> Torch Tensor
+            # ------------------------------------------------
+            crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            crop_tensor = transforms.ToTensor()(crop_rgb)  # (C, H, W)
+
+            # ------------------------------------------------
+            # 2) Enhance using the custom image enhancement pipeline
+            # ------------------------------------------------
+            enhanced_tensor = self.image_enhancement.enhance_image(crop_tensor)
+            
+            # ------------------------------------------------
+            # 3) Convert back to NumPy (BGR) for cv2.imwrite
+            # ------------------------------------------------
+            # clamp to [0, 1] so no unexpected float rounding errors
+            enhanced_clamped = enhanced_tensor.clamp(0, 1)
+            enhanced_pil = transforms.ToPILImage()(enhanced_clamped)
+            enhanced_rgb = np.array(enhanced_pil)
+            crop = cv2.cvtColor(enhanced_rgb, cv2.COLOR_RGB2BGR)  # back to OpenCV format
+
         out_path = os.path.join(crops_destination_dir, base_name)
         cv2.imwrite(out_path, crop)
+
         return {"skipped": {}, "saved": [img_name], "miss": 0}
+
 
     def generate_crops(self, json_file, crops_destination_dir, all_legible=None):
         """

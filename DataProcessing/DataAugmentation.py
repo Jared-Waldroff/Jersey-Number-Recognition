@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 from enum import Enum
 from PIL import ImageEnhance
 import numpy as np
+import cv2
 
 class LegalTransformations(Enum):
     rotation = 40
@@ -220,7 +221,7 @@ class CLAHEEnhancer:
         Returns a normalized tensor with enhanced contrast.
         """
         # Convert from torch.Tensor to NumPy image
-        img = self.denormalize(image_tensor).clamp(0, 1).numpy()  # (C, H, W)
+        img = self.denormalize(image_tensor).clamp(0, 1).cpu().numpy()  # (C, H, W)
         img = np.transpose(img, (1, 2, 0))  # (H, W, C)
         img = (img * 255).astype(np.uint8)
 
@@ -249,12 +250,12 @@ class ImageEnhancement:
     """
 
     def __init__(self,
-                 brightness_factor=1.3,
-                 contrast_factor=1.5,
-                 sharpness_factor=2,
-                 use_clahe=False,
-                 clahe_clip_limit=2.0,
-                 clahe_tile_grid_size=(8, 8),
+                 brightness_factor=1,
+                 contrast_factor=1,
+                 sharpness_factor=1.25,
+                 use_clahe=True,
+                 clahe_clip_limit=1.15,
+                 clahe_tile_grid_size=(2, 2),
                  mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
                  std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
         """

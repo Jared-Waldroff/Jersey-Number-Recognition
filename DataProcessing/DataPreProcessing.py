@@ -141,8 +141,6 @@ class DataPreProcessing:
         images = [img for img in os.listdir(track_path) if not img.startswith('.')]
         track_features = []
 
-        show_first = True  # <- Only show the first image in the tracklet
-
         for img_path in images:
             img_full_path = os.path.normpath(os.path.join(track_path, img_path))
             try:
@@ -160,18 +158,9 @@ class DataPreProcessing:
                     std=self.image_enhancement.std.squeeze()
                 )(img_tensor)
 
-                # Enhance using your module
+                # Enhance using the custom image enhancement module
+                denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
                 img_tensor = self.image_enhancement.enhance_image(img_tensor)
-
-                # --- SHOW FIRST IMAGE AFTER ENHANCEMENT ---
-                if show_first:
-                    denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
-                    img_np = denorm_img.detach().cpu().permute(1, 2, 0).numpy()  # (H, W, C)
-                    plt.imshow(img_np)
-                    plt.title(f"Enhanced image from track: {track}")
-                    plt.axis("off")
-                    plt.show()
-                    show_first = False  # Disable further shows in this track
 
                 # If val_transforms expects PIL input, convert back from tensor
                 img_pil = transforms.ToPILImage()(denorm_img)
