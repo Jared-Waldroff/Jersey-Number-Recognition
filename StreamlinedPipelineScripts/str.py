@@ -60,7 +60,7 @@ def process_image_str(filename, data_root, model, img_size):
     import os
     import torch
 
-    image_path = os.path.join(data_root, 'imgs', filename)
+    image_path = os.path.join(data_root, filename)
     try:
         image = Image.open(image_path).convert('RGB')
     except Exception as e:
@@ -119,55 +119,38 @@ def print_results_table(results: List[Result], file=None):
     print(f'| {c.dataset:<{w}} | {c.num_samples:>9} | {c.accuracy:>8.2f} | {c.ned:>7.2f} '
           f'| {c.confidence:>10.2f} | {c.label_length:>12.2f} |', file=file)
 
-
 def run_inference(model, data_root, result_file, img_size):
     """
-    Parallelized inference for STR.
+    Sequential inference for STR.
     
     Loads all image filenames from the given data root,
-    processes them in parallel using a ThreadPoolExecutor,
+    processes them sequentially using process_image_str,
     and writes the aggregated results to result_file.
     """
     import os
     import json
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     from tqdm.notebook import tqdm
 
-    file_dir = os.path.join(data_root, 'imgs')
+    file_dir = data_root
     filenames = sorted(os.listdir(file_dir))
     results = {}
 
-    # Define number of worker threads (tweak as needed)
-    num_workers = 8
-
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # Submit a task for each filename.
-        future_to_filename = {
-            executor.submit(process_image_str, filename, data_root, model, img_size): filename
-            for filename in filenames
-        }
-        for future in tqdm(as_completed(future_to_filename),
-                           total=len(future_to_filename),
-                           desc="STR Inference"):
-            filename = future_to_filename[future]
-            try:
-                res = future.result()
-                if res is not None:
-                    results.update(res)
-            except Exception as e:
-                print(f"Error processing {filename}: {e}")
+    # Process each image sequentially.
+    for filename in tqdm(filenames, desc="STR Inference"):
+        res = process_image_str(filename, data_root, model, img_size)
+        if res is not None:
+            results.update(res)
 
     # Write results to JSON file.
     with open(result_file, 'w') as f:
         json.dump(results, f)
-
+    print(f"Results saved to {result_file}")
 
 #================================ temperature scaling ======================================#
 
-
 def run_inference_with_temperature(model, data_root, img_size):
     # load images one by one, save paths and result
-    file_dir = os.path.join(data_root, 'imgs')
+    file_dir = data_root
     filenames = os.listdir(file_dir)
     filenames.sort()
     results = {}
@@ -202,7 +185,7 @@ def set_temperature(model, data_root, img_size):
     # First: collect all the logits and labels for the validation set
     logits_list = []
     labels_list = []
-    file_dir = os.path.join(data_root, 'imgs')
+    file_dir = data_root
 
     labels_file = os.path.join(data_root, 'test_gt.txt')
     reader = csv.reader(open(labels_file, 'r'))
