@@ -926,7 +926,8 @@ class CentralPipeline:
             """
             processed_data_path = os.path.join(self.output_processed_data_path, tracklet)
             crops_dir = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
-            result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_results_file'])
+            #result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_results_file'])
+            result_file = os.path.join(processed_data_path, self.results_file_name)
 
             # If caching is enabled and the result file already exists, skip running the command.
             if self.use_cache and os.path.exists(result_file):
