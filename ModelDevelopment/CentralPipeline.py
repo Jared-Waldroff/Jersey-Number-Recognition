@@ -886,54 +886,91 @@ class CentralPipeline:
 
     def run_clip4str_model(self):
         """
-        Run the CLIP4STR model for scene text recognition in parallel.
-        Uses the clip4str.py module to handle the processing.
+        Runs the CLIP4STR model for scene text recognition in parallel, per tracklet.
+        Each tracklet will have its own crops directory and result file.
         """
         self.logger.info("Predicting numbers using parallel CLIP4STR model")
-        # Use the built-in string conversion function explicitly
-        base_dir = __builtins__['str'](Path.cwd().parent.parent)  # Get base project directory
-        os.chdir(base_dir)  # ensure correct working directory
-        print("Current working directory: ", os.getcwd())
+        self.aggregate_legibility_results_data()
+        self.set_legibility_arrays()
 
-        # Import the clip4str module with a different name to avoid conflict
-        sys.path.append(os.path.join(base_dir, "StreamlinedPipelineScripts"))
+        # Ensure correct working directory
+        os.chdir(str(Path.cwd().parent.parent))
+        print("Current working directory:", os.getcwd())
 
-        # Set paths
-        clip4str_dir = os.path.join(base_dir, "str", "CLIP4STR")
+        # Build references to the CLIP4STR code and environment
+        clip4str_dir = os.path.join(os.getcwd(), "str", "CLIP4STR")
         model_path = os.path.join(clip4str_dir, "pretrained", "clip", "clip4str_huge_3e942729b1.pt")
         clip_pretrained = os.path.join(clip4str_dir, "pretrained", "clip", "appleDFN5B-CLIP-ViT-H-14.bin")
         read_script_path = os.path.join(clip4str_dir, "read.py")
 
-        # Path to Python executable
+        # Path to Python executable (in your clip4str_env)
         python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
 
-        # Set environment variables
+        # Environment variables for the subprocess
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-        # Path to images directory and result file
-        crops_dir = os.path.join(self.image_dir)
-
-        # Run CLIP4STR inference using the parallel module
+        # Configure how many parallel workers and batch size
         num_parallel_workers = self.num_workers
         batch_size = self.image_batch_size
 
+        # Optional semaphore to limit GPU usage
         self.gpu_semaphore = threading.Semaphore(value=2)
 
-        success = clip4str_module.run_parallel_clip4str_inference(
-            python_path=python_exe,
-            read_script_path=read_script_path,
-            model_path=model_path,
-            clip_pretrained_path=clip_pretrained,
-            images_dir=crops_dir,
-            result_file=self.str_global_result_file,
-            logger=self.logger,
-            num_workers=num_parallel_workers,
-            batch_size=batch_size,
-            env=env,
-            gpu_semaphore=self.gpu_semaphore
-        )
+        def run_clip4str_for_tracklet(tracklet):
+            """
+            Run CLIP4STR inference on a single tracklet's crops directory.
+            Skips if a cached result file is found (if self.use_cache is True).
+            """
+            processed_data_path = os.path.join(self.output_processed_data_path, tracklet)
+            crops_dir = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
+            result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_results_file'])
+
+            # If caching is enabled and the result file already exists, skip running the command.
+            if self.use_cache and os.path.exists(result_file):
+                self.logger.info(f"Skipping tracklet {tracklet} (cache found at {result_file}).")
+                return tracklet, f"Cached: {result_file}"
+
+            # Run CLIP4STR inference for this tracklet's crops directory
+            try:
+                success = clip4str_module.run_clip4str_inference(
+                    python_path=python_exe,
+                    read_script_path=read_script_path,
+                    model_path=model_path,
+                    clip_pretrained_path=clip_pretrained,
+                    images_dir=crops_dir,
+                    result_file=result_file,
+                    logger=self.logger,
+                    #num_workers=num_parallel_workers,
+                    #batch_size=batch_size,
+                    env=env,
+                    #gpu_semaphore=self.gpu_semaphore
+                )
+                return tracklet, success
+            except Exception as e:
+                self.logger.error(f"Error processing tracklet {tracklet}: {e}")
+                return tracklet, None
+
+        # Use a ThreadPoolExecutor to process each tracklet in parallel
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching CLIP4STR on tracklets", leave=True):
+                futures[executor.submit(run_clip4str_for_tracklet, tracklet)] = tracklet
+
+            # Aggregate the results as they complete
+            for future in tqdm(as_completed(futures), total=len(futures),
+                            desc="Aggregating CLIP4STR results", leave=True):
+                tracklet = futures[future]
+                try:
+                    tracklet, output = future.result()
+                    # Optionally store or log the output
+                    if output is None:
+                        self.logger.error(f"Tracklet {tracklet} failed or returned no output.")
+                    else:
+                        self.logger.info(f"Tracklet {tracklet} completed: {output}")
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet {tracklet}: {e}")
 
         self.logger.info("Done predicting numbers with parallel CLIP4STR")
 
