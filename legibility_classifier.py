@@ -7,7 +7,7 @@ from torch.optim import lr_scheduler
 import torch.backends.cudnn as cudnn
 from torch.utils.data import Dataset
 from jersey_number_dataset import JerseyNumberLegibilityDataset, UnlabelledJerseyNumberLegibilityDataset, TrackletLegibilityDataset
-from networks import LegibilityClassifier, LegibilitySimpleClassifier, LegibilityClassifier34, LegibilityClassifierTransformer
+from networks import LegibilityClassifier, LegibilitySimpleClassifier, LegibilityClassifier34, LegibilityClassifierTransformer, LegibilityClassifier50
 
 import logging
 
@@ -353,6 +353,20 @@ def __getitem__(self, idx):
     img = self.transform(img)
     return img, img_path
 
+def wrap_state_dict_keys_with_model_ft_prefix(state_dict):
+    """
+    Takes a checkpoint that has keys like 'conv1.weight' and
+    returns one with 'model_ft.conv1.weight' so it matches the
+    LegibilityClassifier50 naming.
+    """
+    new_dict = {}
+    for k, v in state_dict.items():
+        # Add 'model_ft.' prefix to every key
+        new_key = f"model_ft.{k}"
+        new_dict[new_key] = v
+    return new_dict
+
+
 # run inference on a list of files
 def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
     dataset = UnlabelledJerseyNumberLegibilityDataset(image_paths, arch=arch)
@@ -367,11 +381,26 @@ def run(image_paths, model_path, threshold=0.5, arch='resnet34'):
         model_ft = LegibilityClassifier()
     elif arch == 'vit':
         model_ft = LegibilityClassifierTransformer(num_classes=1) # Used as a binary classifier
+    elif arch == 'resnet50':
+        model_ft = LegibilityClassifier50()
     else:
         model_ft = LegibilityClassifier34()
         
     if arch == 'vit':
         state_dict = wrap_state_dict_keys(state_dict)
+        model_ft = model_ft.to(device)
+        model_ft.eval()
+    elif arch == 'resnet50':
+        state_dict = wrap_state_dict_keys_with_model_ft_prefix(state_dict)
+        
+        # Remove the fc layer keys so that they won't be loaded
+        if "model_ft.fc.weight" in state_dict:
+            del state_dict["model_ft.fc.weight"]
+        if "model_ft.fc.bias" in state_dict:
+            del state_dict["model_ft.fc.bias"]
+            
+        # Now load with strict=False so it won't complain about missing fc keys
+        model_ft.load_state_dict(state_dict, strict=False)
         model_ft = model_ft.to(device)
         model_ft.eval()
     else:

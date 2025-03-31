@@ -100,6 +100,32 @@ class LegibilityClassifier34(nn.Module):
         x = self.model_ft(x)
         x = F.sigmoid(x)
         return x
+    
+class LegibilityClassifier50(nn.Module):
+    def __init__(self, train=False, finetune=False):
+        super().__init__()
+        # Load a pre-trained ResNet50
+        self.model_ft = models.resnet50(pretrained=True)
+
+        # If finetune=True, freeze parameters so they aren't updated during backprop
+        if finetune:
+            for param in self.model_ft.parameters():
+                param.requires_grad = False
+
+        # Replace final FC layer with a single-output layer for binary classification
+        num_ftrs = self.model_ft.fc.in_features
+        self.model_ft.fc = nn.Linear(num_ftrs, 1)
+
+        # Ensure at least the new FC layer is trainable
+        self.model_ft.fc.requires_grad = True
+
+        # If you want to also allow layer4 to be trainable (as in your ResNet34 code):
+        self.model_ft.layer4.requires_grad = True
+
+    def forward(self, x):
+        x = self.model_ft(x)     # shape: (batch_size, 1)
+        x = F.sigmoid(x)         # apply sigmoid for [0, 1] output
+        return x
 
 # VIT model for binary classification
 class LegibilityClassifierTransformer(nn.Module):
