@@ -1,0 +1,41 @@
+# Core dependencies
+numpy==1.23.5
+pytorch-lightning==1.6.5.post0
+pydeprecate==0.3.2
+tensorboard==2.11.0
+PyYAML==6.0.0
+omegaconf>=2.1.2
+
+# File handling and utilities
+filelock==3.13.1
+typing_extensions==4.12.2
+importlib-metadata==8.5.0
+zipp==3.20.2
+tqdm~=4.64.0
+setuptools~=59.5.0
+
+# Machine learning
+scikit-learn
+timm~=0.6.5
+tokenizers==0.20.3
+transformers==4.17.0
+
+# Image processing
+Pillow==9.2.0
+imgaug~=0.4.0
+opencv-python~=4.5.5
+fvcore~=0.1.5.post20220512
+
+# NLP
+nltk~=3.7.0
+ftfy
+
+# Data handling
+lmdb~=1.3.0
+opendatasets
+
+# Experimentation
+hydra-core~=1.2.0
+ray[tune]~=1.13.0
+ax-platform~=0.2.5.1
+seaborn

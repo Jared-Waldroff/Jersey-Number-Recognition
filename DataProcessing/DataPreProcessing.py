@@ -55,6 +55,10 @@ class DataPaths(Enum):
     COMMON_PROCESSED_OUTPUT_DATA_TEST = str(Path(PROCESSED_DATA_OUTPUT_DIR_TEST) / 'common_data')
     COMMON_PROCESSED_OUTPUT_DATA_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR_CHALLENGE) / 'common_data')
     STREAMLINED_PIPELINE = str(Path.cwd().parent.parent / 'StreamlinedPipelineScripts')
+    ENHANCED_STR_ROOT = str(Path(PRE_TRAINED_MODELS_DIR) / 'clip4str')
+    ENHANCED_STR_MAIN = str(Path(ENHANCED_STR_ROOT) / 'clip4str_huge_3e942729b1.pt')
+    ENHANCED_STR_OPEN_CLIP = str(Path(ENHANCED_STR_ROOT) / 'appleDFN5B-CLIP-ViT-H-14.bin')
+    ENHANCED_STR_VIT_L = str(Path(ENHANCED_STR_ROOT) / 'ViT-L-14.pt')
 
 class CommonConstants(Enum):
     FEATURE_DATA_FILE_NAME = "features.npy"
@@ -129,11 +133,7 @@ class DataPreProcessing:
             
         return tracks, max_track
   
-    def process_single_track(self, track, input_folder, val_transforms):
-        """
-        Process one tracklet (i.e. one directory of images) and return a tuple (track, processed_data)
-        where processed_data is either a tensor (if load_only) or a numpy array of features.
-        """
+    def process_single_track(self, track, input_folder, val_transforms, enhance_image=True):
         track_path = os.path.normpath(os.path.join(input_folder, track))
         if not os.path.isdir(track_path):
             return None  # Skip non-directory
@@ -148,9 +148,9 @@ class DataPreProcessing:
                 if img is None:
                     continue
 
-                # Convert BGR to RGB
+                # Convert BGR -> RGB
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), values in [0, 1]
+                img_tensor = transforms.ToTensor()(img_rgb)  # (C, H, W), in [0, 1]
 
                 # Normalize using ImageNet stats
                 img_tensor = transforms.Normalize(
@@ -158,15 +158,20 @@ class DataPreProcessing:
                     std=self.image_enhancement.std.squeeze()
                 )(img_tensor)
 
-                # Enhance using the custom image enhancement module
+                # Optionally enhance the *normalized* tensor
+                if enhance_image:
+                    img_tensor = self.image_enhancement.enhance_image(img_tensor)
+
+                # Now denormalize the final tensor (enhanced or not) for val_transforms
                 denorm_img = self.image_enhancement.denormalize(img_tensor).clamp(0, 1)
-                img_tensor = self.image_enhancement.enhance_image(img_tensor)
-
-                # If val_transforms expects PIL input, convert back from tensor
+                
+                # Convert to PIL
                 img_pil = transforms.ToPILImage()(denorm_img)
-                transformed = val_transforms(img_pil)
 
+                # Apply your val_transforms
+                transformed = val_transforms(img_pil)
                 track_features.append(transformed.unsqueeze(0))
+
             except Exception as e:
                 logging.info(f"Error processing {img_full_path}: {e}")
                 continue
