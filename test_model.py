@@ -16,7 +16,7 @@ from tqdm import tqdm
 ############################################################################################################################################################################
 Run the following command in the terminal to train the SE-Enhanced ResNet model:
 
-TestForSqueezeModel
+TestforFPNModel
 
 python test_model.py --model_path ResNetModels\baseline_ResNet_crops_model.pth --image_dir data\SoccerNet\jersey-2023\processed_data\test\common_data\crops\imgs --output_file predictions.json --illegible_file data\SoccerNet\jersey-2023\processed_data\test\common_data\illegible_results.json --ground_truth_file data\SoccerNet\jersey-2023\extracted\test\test_gt.json
 
