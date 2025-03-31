@@ -384,7 +384,7 @@ class CentralPipeline:
         all_pose_results = []
 
         # Process each legible tracklet
-        for tracklet in self.tracklets_to_process:
+        for tracklet in self.legible_tracklets_list:
             tracklet_pose_path = os.path.join(self.output_processed_data_path,
                                               tracklet,
                                               config.dataset['SoccerNet']['pose_output_json'])
@@ -452,7 +452,7 @@ class CentralPipeline:
         """
         self.logger.info("Generating json for pose")
         self.aggregate_legibility_results_data()
-        #self.set_legibility_arrays()
+        self.set_legibility_arrays()
 
         num_messages = 0
 
@@ -542,7 +542,7 @@ class CentralPipeline:
         # If running in series, call the worker function for each tracklet sequentially.
         if series:
             self.logger.info("Running pose estimation in series")
-            for tracklet in tqdm(self.tracklets_to_process, desc="Running pose estimation (series)", leave=True):
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Running pose estimation (series)", leave=True):
                 pose_worker(tracklet,
                                 self.output_processed_data_path,
                                 self.image_batch_size,
@@ -552,7 +552,7 @@ class CentralPipeline:
                                 self.logger,
                                 pyscript)
         else:
-            self.logger.info(f"Legible tracklets list: {', '.join(self.tracklets_to_process)}")
+            self.logger.info(f"Legible tracklets list: {', '.join(self.legible_tracklets_list)}")
             futures = []
             self.logger.info(f"Running pose estimation with multiprocessing using {self.num_workers} workers")
             if self.num_workers > 2:
@@ -568,7 +568,7 @@ class CentralPipeline:
             
             # NOTE: ProcessPool is 25% faster but shoes no logs. ThreadPool shows us logs so might be better to just stick to ThreadPool
             with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-                for tracklet in self.tracklets_to_process:
+                for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(pose_worker,
                                                 tracklet,
                                                 self.output_processed_data_path,
@@ -721,10 +721,10 @@ class CentralPipeline:
         """
         # Ensure we have up-to-date legibility results
         self.aggregate_legibility_results_data()
-        #self.set_legibility_arrays()
+        self.set_legibility_arrays()
 
         # If no tracklets to process, nothing to do.
-        if not self.tracklets_to_process:
+        if not self.legible_tracklets_list:
             self.logger.warning("No tracklets found; nothing to do.")
             return
 
@@ -733,7 +733,7 @@ class CentralPipeline:
         aggregated_saved = []
 
         # Process each tracklet in a simple for-loop
-        for tracklet in tqdm(self.tracklets_to_process, desc="Generating crops for tracklets", leave=True):
+        for tracklet in tqdm(self.legible_tracklets_list, desc="Generating crops for tracklets", leave=True):
             tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
             output_json = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['pose_output_json'])
             crops_destination_dir = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['crops_folder'])
@@ -774,7 +774,7 @@ class CentralPipeline:
     def run_str_model(self):
         self.logger.info("Predicting numbers")
         self.aggregate_legibility_results_data()
-        #self.set_legibility_arrays()
+        self.set_legibility_arrays()
         
         # Ensure correct working directory.        
         os.chdir(str(Path.cwd().parent.parent))
@@ -818,7 +818,7 @@ class CentralPipeline:
         # Use a ThreadPoolExecutor to run the STR inference in parallel for each tracklet.
         futures = {}
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR on tracklets", leave=True):
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching STR on tracklets", leave=True):
                 futures[executor.submit(run_str_for_tracklet, tracklet)] = tracklet
 
             # Process results as they complete.
@@ -879,7 +879,7 @@ class CentralPipeline:
         # Use a ThreadPoolExecutor to read files in parallel
         futures = {}
         with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
-            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching STR file loads", leave=True):
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching STR file loads", leave=True):
                 futures[executor.submit(load_str_file_for_tracklet, tracklet)] = tracklet
 
             # Merge each tracklet’s data as it completes
@@ -909,7 +909,7 @@ class CentralPipeline:
         """
         self.logger.info("Predicting numbers using parallel CLIP4STR model")
         self.aggregate_legibility_results_data()
-        #self.set_legibility_arrays()
+        self.set_legibility_arrays()
 
         # Ensure correct working directory
         os.chdir(str(Path.cwd().parent.parent))
@@ -975,7 +975,7 @@ class CentralPipeline:
         # Use a ThreadPoolExecutor to process each tracklet in parallel
         futures = {}
         with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            for tracklet in tqdm(self.tracklets_to_process, desc="Dispatching CLIP4STR on tracklets", leave=True):
+            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching CLIP4STR on tracklets", leave=True):
                 futures[executor.submit(run_clip4str_for_tracklet, tracklet)] = tracklet
 
             # Aggregate the results as they complete
@@ -1153,7 +1153,7 @@ class CentralPipeline:
         
     def combine_results(self):
         self.aggregate_legibility_results_data()
-        #self.set_legibility_arrays()
+        self.set_legibility_arrays()
         
         # 8. Combine tracklet results
         # Process global STR predictions (results_dict) and get analysis results.
