@@ -159,36 +159,100 @@ class TrackletLegibilityDataset(Dataset):
 
 class JerseyNumberLegibilityDataset(Dataset):
     def __init__(self, annotations_file, img_dir, mode='train', isBalanced=False, arch='resnet18'):
+        print("=" * 50)
+        print("Dataset Initialization Diagnostics")
+        print("=" * 50)
+
+        # Normalize architecture name
         if 'resnet' in arch:
             arch = 'resnet'
+
+        # Transform selection
         self.transform = data_transforms[mode][arch]
-        self.img_labels = pd.read_csv(annotations_file)
+
+        # Read JSON file
+        try:
+            with open(annotations_file, 'r') as f:
+                annotations = json.load(f)
+
+            print(f"Loaded JSON with {len(annotations)} entries")
+
+            # Convert JSON to DataFrame
+            data = []
+            for tracklet, jersey_number in annotations.items():
+                # Convert illegible (-1) to 0, legible to 1
+                label = 1 if jersey_number != -1 else 0
+
+                # Find images for this tracklet
+                tracklet_dir = os.path.join(img_dir, tracklet)
+                if os.path.exists(tracklet_dir):
+                    for img_name in os.listdir(tracklet_dir):
+                        img_path = os.path.join(tracklet, img_name)
+                        data.append([img_path, label])
+
+            self.img_labels = pd.DataFrame(data, columns=['image', 'legible'])
+
+            print("\nDataFrame Information:")
+            print(f"Total rows: {len(self.img_labels)}")
+            print("\nLabel Distribution:")
+            print(self.img_labels['legible'].value_counts())
+
+        except Exception as e:
+            print(f"Error loading annotations: {e}")
+            raise
+
+        # Balancing logic
         if isBalanced:
-            legible =self.img_labels[self.img_labels.iloc[:,1]==1]
-            count_legible = len(legible)
-            illegible = self.img_labels[self.img_labels.iloc[:,1]==0]
-            print(count_legible, len(illegible))
-            if len(illegible) > count_legible:
-                illegible = illegible.sample(n=count_legible)
+            print("\nBalancing Dataset:")
+            legible = self.img_labels[self.img_labels['legible'] == 1]
+            illegible = self.img_labels[self.img_labels['legible'] == 0]
+
+            print(f"Original Legible images: {len(legible)}")
+            print(f"Original Illegible images: {len(illegible)}")
+
+            # Balance by downsampling the majority class
+            if len(illegible) > len(legible):
+                illegible = illegible.sample(n=len(legible))
+            elif len(legible) > len(illegible):
+                legible = legible.sample(n=len(illegible))
+
             self.img_labels = pd.concat([legible, illegible])
-            print(f"Balanced dataset: legibles = {count_legible} all = {len(self.img_labels)}")
-        else:
-            legible = self.img_labels[self.img_labels.iloc[:, 1] == 1]
-            count_legible = len(legible)
-            print(f"As-is dataset: legibles = {count_legible} all = {len(self.img_labels)}")
+            print(f"Balanced dataset: Total = {len(self.img_labels)}")
+            print(f"Balanced dataset: Legible = {len(legible)}, Illegible = {len(illegible)}")
 
         self.img_dir = img_dir
-
 
     def __len__(self):
         return len(self.img_labels)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = Image.open(img_path).convert('RGB')
-        label = self.img_labels.iloc[idx, 1]
-        if self.transform:
-            image = self.transform(image)
+        try:
+            img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
 
-        return image, label, self.img_labels.iloc[idx, 0]
+            # Verbose image loading diagnostics
+            print(f"Loading image: {img_path}")
+            print(f"Image exists: {os.path.exists(img_path)}")
 
+            # Try to open the image
+            image = Image.open(img_path).convert('RGB')
+
+            # Log image details
+            print(f"Image mode: {image.mode}")
+            print(f"Image size: {image.size}")
+
+            label = self.img_labels.iloc[idx, 1]
+
+            if self.transform:
+                image = self.transform(image)
+
+            return image, label, self.img_labels.iloc[idx, 0]
+
+        except FileNotFoundError:
+            print(f"ERROR: Image file not found: {img_path}")
+            raise
+        except IOError as e:
+            print(f"ERROR: Unable to open image {img_path}: {e}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error loading image: {e}")
+            raise
