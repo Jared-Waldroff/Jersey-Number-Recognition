@@ -265,9 +265,9 @@ Status updates from all teams:
 ### Action Items
 | Task | Assignee | Due Date | Status |
 |------|----------|----------|---------|
-| Finalize ResNet optimizations | Muskaan, Jeremy | March 23, 2025 | In Progress |
-| Complete STR fine-tuning | Jared | March 23, 2025 | In Progress |
-| Implement data augmentation enhancements | Colin | March 23, 2025 | In Progress |
+| Finalize ResNet optimizations | Muskaan, Jeremy | March 23, 2025 | Complete |
+| Complete STR fine-tuning | Jared | March 23, 2025 | Complete |
+| Implement data augmentation enhancements | Colin | March 23, 2025 | Complete |
 | Transformer implementation update | Aadil, Mahmoud | March 23, 2025 | Status Unknown |
 
 ## Meeting Record: March 23, 2025
@@ -294,20 +294,25 @@ Status updates from all teams:
 #### STR/Pipeline Team (Colin, Jared):
 
 **Colin's Progress:**
-- Successfully implemented caching for phase 1 data pre-processing
-- Completed memory optimization and parallel processing enhancements
+- Successfully implemented caching for all steps of the pipeline, from data pre-processsing to model inference
+- Implemented GPU load-balancing with a GPU semaphore for the pre-processing step. Noted impossibility with implementing the GPU sempahore for all other methods that call external scripts due to architectural constraints, and the decision to cease further effort on this out of time constraints
+- Parallelized the final parts of the pipeline (pose, crops, STR)
+- Developed many core aggregation methods to pool results together into a common cache from individual tracklet data directories as a high-performance solution to safe-parallelization that avoids any race conditions
 - Implemented batch processing (32 tracklets) to prevent memory overload
 - Pipeline now able to process all tracklets without overloading
 - Identified specific tracklets where legibility classifier fails
-- Working on improving end results by ~1% without changing the STR
-- Created "common_data" directory to prevent race conditions during parallel processing
-- Implemented multi-threaded processing (spawning 18 threads)
+- Working on improving end results by ~1% without changing the STR, just by data pre-processing enhancements alone (image enhancements)
+- Implemented multi-threaded processing (spawning 12-18 threads) for IO bound operations
+- Discovered that the underperformance of the legibility classifier was the most major bottleneck for the whole pipeline given that the legibility results (87%) matched the end STR results (87%), realizing that the STR is only as good as the legibility classifier because it scores 100% on what it receives, not what it doesn't
+- Compiled the list of false positives/negatives for tracklets that were misclassified and never sent to the pose/STR
+- Attempted to lower the legibility classifier threshold to 0.01 to let nearly all tracklets in to the STR under the assumption that the STR overpowers the strength of the legibility classifier (removing the weakest link), but hit serious problems with runtime optimization due to insufficient pruning
 
 **Jared's Progress:**
 - New STR model implementation completed and in final tuning stages
 - New pipeline fully functional and merged to main branch
 - Backward compatibility maintained for all existing code
 - Demonstrated significantly improved processing speed
+- Trained a ResNet50 model on augmented data via Colin's DataAugmentation class, achieving top-performing results on the compiled false positives/negatives "hard" tracklet set, changing back the legibility threshold to 0.5
 
 #### ConvNet Team Update (Aadil, Mahmoud):
 - Successfully implemented the ConvNet architecture.
