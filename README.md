@@ -1,5 +1,9 @@
 # SoccerNet Jersey Number Recognition
 
+Link to presentation slides
+
+https://docs.google.com/presentation/d/1QSnBWcPJF3gCPufK6seRf2KUdk9KiYwE41tVE7zA7A0/edit?usp=sharing
+
 Repository containing all necessary codes to get started on the SoccerNet Jersey Number Recognition challenge. 
 
 In this year's SoccerNet Jersey Number challenge, participants are given short video tracklets of soccer players and are asked to identify the jersey number of the player. This task can be useful for consumer applications as it helps to build systems that can accurately identify and recognize players in real-time during a soccer game. This information can be used to create interactive experiences for fans, such as player statistics, player tracking, and in-game analysis. Additionally, this technology can also be used in broadcast production to add player labels and enhance the viewing experience. By encouraging research on player recognition, the SoccerNet Jersey Number challenge contributes to the development of more engaging and informative consumer applications for soccer fans.
