@@ -332,16 +332,16 @@ Status updates from all teams:
 ### Action Items
 | Task | Assignee | Due Date | Status |
 |------|----------|----------|---------|
-| Complete ResNet optimization implementation | Muskaan, Jeremy | March 27, 2025 | Completed |
+| Complete ResNet optimization implementation | Muskaan, Jeremy | March 27, 2025 | Done |
 | Get new STR POC working | Jared | March 28, 2025 | Done |
-| Fully integrate new STR and run experiments | Jared | March 31st, 2025 | In-progress |
+| Fully integrate new STR and run experiments | Jared | March 31st, 2025 | Done |
 | Create research framework (overhaul entire pipeline) | Colin | March 27, 2025 | Done |
 | Bottleneck exploration | Colin | March 27, 2025 | Done |
-| Feature enhancement POC (image enhance) | Colin | March 29th, 2025 | In-progress |
-| Improved legibility classifier / reduced error rate for illegible tracklets | Colin | March 30th, 2025 | In-Progress |
-| Parallelized pose + crops + STR | Colin | March 29th, 2025 | In-Progress |
-| Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | In Progress |
-| Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | Status In progress |
+| Feature enhancement POC (image enhance) | Colin | March 29th, 2025 | Done |
+| Train new ResNet50 model on augmented data | Jared | March 31st, 2025 | Done |
+| Parallelized pose + crops + STR | Colin | March 29th, 2025 | DOne |
+| Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | Aborted |
+| Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | In-progress |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
 | Complete slide deck for presentation | All members | March 31, 2025 |In Progress |
 | Prepare project demo | All members | April 3, 2025 | In Progress  |
@@ -362,14 +362,6 @@ Status updates from all teams:
    - New CLIP4STR model implemented and fine-tuned
    - Trained a new ResNet50 legibility classifier on augmented data to replace the current ResNet34
    - Testing and evaluation completed for primary components
-                 brightness_factor=1,
-                 contrast_factor=1,
-                 sharpness_factor=1.25,
-                 use_clahe=True,
-                 clahe_clip_limit=1.15,
-                 clahe_tile_grid_size=(2, 2),
-                 mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
-                 std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
 3. Parameter tuning
 3.1. Data Augmentation
    - Conducted many small-scale POCs on image enhancement to fine-tune the brightness, contrast and sharpness factors
