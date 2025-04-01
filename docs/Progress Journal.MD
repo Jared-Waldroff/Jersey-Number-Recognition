@@ -308,11 +308,13 @@ Status updates from all teams:
 - Attempted to lower the legibility classifier threshold to 0.01 to let nearly all tracklets in to the STR under the assumption that the STR overpowers the strength of the legibility classifier (removing the weakest link), but hit serious problems with runtime optimization due to insufficient pruning
 
 **Jared's Progress:**
-- New STR model implementation completed and in final tuning stages
+- New CLIP4STR model implementation completed and in final tuning stages
 - New pipeline fully functional and merged to main branch
 - Backward compatibility maintained for all existing code
 - Demonstrated significantly improved processing speed
 - Trained a ResNet50 model on augmented data via Colin's DataAugmentation class, achieving top-performing results on the compiled false positives/negatives "hard" tracklet set, changing back the legibility threshold to 0.5
+- Fine-tuned a Swin Transformer on 2 epochs but aborted out of time constraints and the decision to move forward with the enhanced ResNet50 model
+- Collaborated with Colin to do distributed computing on the final challenge dataset out of significant time constraints, splitting tracklets across 2 computers and running the whole pipeline on maximum power for 12+ hours, including overnight, being on standby to monitor and prevent out-of-memory issues
 
 #### ConvNet Team Update (Aadil, Mahmoud):
 - Successfully implemented the ConvNet architecture.
