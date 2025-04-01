@@ -193,8 +193,9 @@ While the theoretical understanding of the original ResNet paper was straightfor
 - Learning importance of residual connections in deep networks
 - Working through implementation debugging process
 
-#### Transformer Team Update (Aadil, Mahmoud):
-- 
+#### ConvNet (Aadil, Mahmoud):
+- replicating results 
+- start applying basic ConvNet
 #### CNN / Data Pre-Processing and Augmentation Team Update (Colin, Jared):
 **Colin:**
 - `experimented` with data augmentation by creating a `DataAugmentation` class for which we can perform certain `LegalTransformations`. This will help us increase the robustness of our models by training them on diverse scenarios
@@ -268,7 +269,7 @@ Status updates from all teams:
 | Finalize ResNet optimizations | Muskaan, Jeremy | March 23, 2025 | Complete |
 | Complete STR fine-tuning | Jared | March 23, 2025 | Complete |
 | Implement data augmentation enhancements | Colin | March 23, 2025 | Complete |
-| Transformer implementation update | Aadil, Mahmoud | March 23, 2025 | Status Unknown |
+| ConcNet enhancment implementation | Aadil, Mahmoud | March 23, 2025 | Complete |
 
 ## Meeting Record: March 23, 2025
 ### Meeting Details
@@ -343,7 +344,7 @@ Status updates from all teams:
 | Train new ResNet50 model on augmented data | Jared | March 31st, 2025 | Done |
 | Parallelized pose + crops + STR | Colin | March 29th, 2025 | DOne |
 | Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | Aborted |
-| Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | In-progress |
+| Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | Done |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
 | Complete slide deck for presentation | All members | March 31, 2025 |In Progress |
 | Prepare project demo | All members | April 3, 2025 | In Progress  |
