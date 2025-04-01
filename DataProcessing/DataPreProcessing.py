@@ -140,7 +140,7 @@ class DataPreProcessing:
             
         return tracks, max_track
   
-    def process_single_track(self, track, input_folder, val_transforms, enhance_image=True):
+    def process_single_track(self, track, input_folder, val_transforms, enhance_image=False):
         track_path = os.path.normpath(os.path.join(input_folder, track))
         if not os.path.isdir(track_path):
             return None  # Skip non-directory
