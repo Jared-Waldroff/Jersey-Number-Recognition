@@ -567,7 +567,7 @@ class CentralPipeline:
             }
             
             # NOTE: ProcessPool is 25% faster but shoes no logs. ThreadPool shows us logs so might be better to just stick to ThreadPool
-            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(pose_worker,
                                                 tracklet,
@@ -737,6 +737,11 @@ class CentralPipeline:
             tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
             output_json = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['pose_output_json'])
             crops_destination_dir = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['crops_folder'])
+            
+            # CACHING:
+            if self.use_cache and os.path.exists(crops_destination_dir):
+                self.logger.info(f"Skipping tracklet {tracklet} (cache found at {crops_destination_dir}).")
+                continue
 
             # Ensure the crops folder exists
             Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
@@ -837,7 +842,9 @@ class CentralPipeline:
         Aggregates per-tracklet STR results into one global file (str_results.json)
         located under self.common_processed_data_dir.
         Uses multithreading to speed up file IO.
-        """        
+        """
+        self.aggregate_legibility_results_data()
+        self.set_legibility_arrays()
         # If use_cache is True and the global STR results file already exists, skip
         if self.use_cache and os.path.exists(self.str_global_result_file):
             self.logger.info(f"Reading STR results from cache: {self.str_global_result_file}")
