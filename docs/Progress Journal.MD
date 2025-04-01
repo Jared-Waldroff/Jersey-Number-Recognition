@@ -314,7 +314,7 @@ Status updates from all teams:
 - Demonstrated significantly improved processing speed
 - Trained a ResNet50 model on augmented data via Colin's DataAugmentation class, achieving top-performing results on the compiled false positives/negatives "hard" tracklet set, changing back the legibility threshold to 0.5
 - Fine-tuned a Swin Transformer on 2 epochs but aborted out of time constraints and the decision to move forward with the enhanced ResNet50 model
-- Collaborated with Colin to do distributed computing on the final challenge dataset out of significant time constraints, splitting tracklets across 2 computers and running the whole pipeline on maximum power for 12+ hours, including overnight, being on standby to monitor and prevent out-of-memory issues
+- Proposed the idea of distributed computing and worked with Colin to do so on the final challenge dataset out of significant time constraints, splitting tracklets across 2 computers and running the whole pipeline on maximum power for 12+ hours, including overnight, being on standby to monitor and prevent out-of-memory issues
 
 #### ConvNet Team Update (Aadil, Mahmoud):
 - Successfully implemented the ConvNet architecture.
