@@ -345,7 +345,7 @@ Status updates from all teams:
 ## Technical Progress Summary
 1. Pipeline Optimization:
    - 4x performance improvement achieved
-   - Full dataset processing time reduced to 7.48 hours (down from 35-40 hours)
+   - Full test dataset processing time using original pipeline reduced to 7.48 hours (down from 35-40 hours)
    - Modular architecture implemented
    - Enhanced logging and debugging capabilities
    - Memory optimization and parallel processing implemented (18 threads)
@@ -354,6 +354,22 @@ Status updates from all teams:
 
 2. Model Implementation:
    - ResNet network with squeeze and excitation and feature pyramid optimizations completed
-   - New STR model implemented and fine-tuned
-   - Legibility classifier improvement areas identified
+   - New CLIP4STR model implemented and fine-tuned
+   - Trained a new ResNet50 legibility classifier on augmented data to replace the current ResNet34
    - Testing and evaluation completed for primary components
+                 brightness_factor=1,
+                 contrast_factor=1,
+                 sharpness_factor=1.25,
+                 use_clahe=True,
+                 clahe_clip_limit=1.15,
+                 clahe_tile_grid_size=(2, 2),
+                 mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
+                 std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
+3. Parameter tuning
+3.1. Data Augmentation
+   - Conducted many small-scale POCs on image enhancement to fine-tune the brightness, contrast and sharpness factors
+   - Introduced CLAHE (Contrast Limited Adaptive Histogram Equalization), tweaked clip limit and tile grid size
+   - Enabled image enhancement on both the feature generation step and crops creation
+3.2. Gaussian Outliers Filter
+   - Normalized the inputs relative to the threshold to define a threshold from 0-1
+   - Conducted many small-scale POCs on the threshold factor and number of rounds, optimizing to threshold=0.97 and rounds=1. Objective measurement was letting in the best images that are legible and getting rid of bad ones, but capping the number of images removed to 10-50
