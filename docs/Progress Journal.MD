@@ -342,7 +342,7 @@ Status updates from all teams:
 | Bottleneck exploration | Colin | March 27, 2025 | Done |
 | Feature enhancement POC (image enhance) | Colin | March 29th, 2025 | Done |
 | Train new ResNet50 model on augmented data | Jared | March 31st, 2025 | Done |
-| Parallelized pose + crops + STR | Colin | March 29th, 2025 | DOne |
+| Parallelized pose + crops + STR | Colin | March 29th, 2025 | Done |
 | Integrate data augmentation into new STR | Colin, Jared | March 31st, 2025 | Aborted |
 | Complete ConvNet implementation | Aadil, Mahmoud | March 27, 2025 | Done |
 | Begin drafting final report | All members | March 27, 2025 | Not Started |
