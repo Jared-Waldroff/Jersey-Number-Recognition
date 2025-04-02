@@ -45,14 +45,8 @@ class DataPaths(Enum):
     REID_MODEL_1 = str(Path(REID_PRE_TRAINED) / 'dukemtmcreid_resnet50_256_128_epoch_120.ckpt')
     REID_MODEL_2 = str(Path(REID_PRE_TRAINED) / 'market1501_resnet50_256_128_epoch_120.ckpt')
     REID_CONFIG_YAML = str(Path(REID_PRE_TRAINED) / 'configs' / '256_resnet50.yml')
-    
-    
-    
-    #RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'legibility_resnet34_soccer_20240215.pth')
-    RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'best_resnet50_jersey.pth')
-    
-    
-    
+    RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'legibility_resnet34_soccer_20240215.pth')
+    #RESNET_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'resnet' / 'best_resnet50_jersey.pth')
     VIT_MODEL = str(Path(PRE_TRAINED_MODELS_DIR) / 'ViT' / 'vit_base_patch16_224_in21k_ft_svhn.pth')
     PROCESSED_DATA_OUTPUT_DIR = str(Path.cwd().parent.parent / 'data' / 'SoccerNet' / 'jersey-2023' / 'processed_data')
     PROCESSED_DATA_OUTPUT_DIR_TRAIN = str(Path(PROCESSED_DATA_OUTPUT_DIR) / 'train')
