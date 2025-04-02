@@ -121,39 +121,49 @@ class DataAugmentation:
         image_denorm = self.denormalize(image)
         pil_img = self.to_pil(image_denorm)
         aug_versions = {}
-        
+
         # Always include the original
         aug_versions['original'] = image
-        
+
         # Horizontal flip
         if "horizontal_flip" in valid_transforms and self.horizontal_flip and random.random() < 0.5:
             flipped = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
-            aug_versions['horizontal_flip'] = self.to_tensor(flipped)
-        
+            tensor = self.to_tensor(flipped)
+            # Add normalization here
+            aug_versions['horizontal_flip'] = self.normalize(tensor)
+
         # Blur
         if "blur" in valid_transforms and self.max_blur > 0:
             blur_radius = random.uniform(0, self.max_blur)
             blurred = pil_img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-            aug_versions['blur'] = self.to_tensor(blurred)
-        
+            tensor = self.to_tensor(blurred)
+            # Add normalization here
+            aug_versions['blur'] = self.normalize(tensor)
+
         # Rotation
         if "rotation" in valid_transforms:
             angle = random.uniform(-self.max_rotation, self.max_rotation)
             rotated = pil_img.rotate(angle)
-            aug_versions['rotation'] = self.to_tensor(rotated)
-        
+            tensor = self.to_tensor(rotated)
+            # Add normalization here
+            aug_versions['rotation'] = self.normalize(tensor)
+
         # Brightness
         if "brightness" in valid_transforms:
             brightness_factor = random.uniform(*self.brightness_range)
             brightened = F.adjust_brightness(pil_img, brightness_factor)
-            aug_versions['brightness'] = self.to_tensor(brightened)
-        
+            tensor = self.to_tensor(brightened)
+            # Add normalization here
+            aug_versions['brightness'] = self.normalize(tensor)
+
         # Contrast
         if "contrast" in valid_transforms:
             contrast_factor = random.uniform(*self.contrast_range)
             contrasted = F.adjust_contrast(pil_img, contrast_factor)
-            aug_versions['contrast'] = self.to_tensor(contrasted)
-        
+            tensor = self.to_tensor(contrasted)
+            # Add normalization here
+            aug_versions['contrast'] = self.normalize(tensor)
+
         # Stretch
         if "stretch" in valid_transforms:
             orig_width, orig_height = pil_img.size
@@ -162,13 +172,17 @@ class DataAugmentation:
             stretched = pil_img.resize((new_width, new_height), resample=Image.BILINEAR)
             # Center crop back to original
             stretched_cropped = F.center_crop(stretched, (orig_height, orig_width))
-            aug_versions['stretch'] = self.to_tensor(stretched_cropped)
-        
+            tensor = self.to_tensor(stretched_cropped)
+            # Add normalization here
+            aug_versions['stretch'] = self.normalize(tensor)
+
         # Patch masking
         if "patch_mask" in valid_transforms:
             # use the patch_mask_keep fraction to discard patches
             masked_pil = self.patch_masking(pil_img, self.patch_mask_keep, self.patch_size)
-            aug_versions['patch_mask'] = self.to_tensor(masked_pil)
+            tensor = self.to_tensor(masked_pil)
+            # Add normalization here
+            aug_versions['patch_mask'] = self.normalize(tensor)
         
         return aug_versions
 

@@ -18,8 +18,6 @@ from strhub.models.base import CrossEntropySystem
 from .modules import DecoderLayer, Decoder, modify_attn_mask
 
 
-# an alternative choice when the input argument is not valid 
-# CLIP_PATH = '/PUT/YOUR/PATH/HERE/pretrained/clip''
 CLIP_PATH = 'str/CLIP4STR/pretrained/clip'
 if not os.path.exists(CLIP_PATH):
     CLIP_PATH = 'pretrained/clip'

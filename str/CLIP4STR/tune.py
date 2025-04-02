@@ -14,6 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+os.environ["PATH"] += os.pathsep + r"C:\Windows\System32"
+
+import ray
+if not ray.is_initialized():
+    ray.init(num_gpus=1)
+
 import logging
 import math
 import os
@@ -144,7 +151,9 @@ def main(config: DictConfig):
         # 'wd': tune.loguniform(config.tune.wd.min, config.tune.wd.max),
     }
 
-    steps_per_epoch = len(hydra.utils.instantiate(config.data).train_dataloader())
+    datamodule = hydra.utils.instantiate(config.data)
+    steps_per_epoch = len(datamodule.train_dataloader())
+
     val_steps = steps_per_epoch * config.trainer.max_epochs / config.trainer.val_check_interval
     max_t = round(0.75 * val_steps)
     warmup_t = round(config.model.warmup_pct * val_steps)

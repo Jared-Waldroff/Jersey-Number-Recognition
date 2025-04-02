@@ -49,6 +49,16 @@ from mmpose.datasets import DatasetInfo
 os.chdir(str(Path.cwd().parent.parent))
 print(f"(premain) Current working directory: {os.getcwd()}", flush=True)
 
+def remap_path(path):
+    """Remap paths from Colin's machine to current machine."""
+    if isinstance(path, str) and 'colin' in path.lower():
+        # Replace Colin's path with Jared's path
+        return path.replace(
+            r'c:\Users\colin\OneDrive\Desktop\Jersey-Number-Recognition',
+            r'C:\Users\jared\PycharmProjects\Jersey-Number-Recognition'
+        )
+    return path
+
 def main():
     logger = CustomLogger().get_logger()
 
@@ -115,7 +125,8 @@ def main():
             for i, image_id in enumerate(batch_keys):
                 try:
                     image = coco.loadImgs(image_id)[0]
-                    image_name = os.path.join(args.img_root, image['file_name'])
+                    image_file = remap_path(image['file_name'])
+                    image_name = os.path.join(args.img_root, image_file)
                     ann_ids = coco.getAnnIds(image_id)
 
                     # Build bounding boxes for the image.

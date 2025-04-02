@@ -610,6 +610,7 @@ class CentralPipeline:
         """
         filtered_points = self.get_points(entry)
         img_name = entry["img_name"]
+        img_name = self.remap_path(img_name)
         base_name = os.path.basename(img_name)
 
         if base_name not in all_legible:
@@ -687,12 +688,17 @@ class CentralPipeline:
             all_legible = []
             for key in self.loaded_legible_results.keys():
                 for entry in self.loaded_legible_results[key]:
-                    all_legible.append(os.path.basename(entry))
+                    remapped_entry = self.remap_path(entry)
+                    all_legible.append(os.path.basename(remapped_entry))
 
         # Read the pose_results
         with open(json_file, 'r') as f:
             data = json.load(f)
             all_poses = data["pose_results"]
+
+            # Optional: Preview the file paths to check for Colin's path
+            if len(all_poses) > 0 and 'img_name' in all_poses[0]:
+                self.logger.info(f"Sample image path: {all_poses[0]['img_name']}")
 
         aggregated_skipped = {}
         aggregated_saved = []
@@ -930,7 +936,7 @@ class CentralPipeline:
 
         # Path to Python executable (in your clip4str_env)
         #python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", config.clip4str_env, "python.exe")
-        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "clip4str_py39", "python.exe")
+        python_exe = os.path.join(os.path.expanduser("~"), "miniconda3", "envs", "clip4str", "python.exe")
 
         # Environment variables for the subprocess
         env = os.environ.copy()
@@ -1252,8 +1258,8 @@ class CentralPipeline:
                 "features.npy",
                 "illegible_results.json",
                 "legible_results.json",
-                "main_subject_gauss_th=0.97_r=1.json",
-                "soccer_ball.json"
+                #"main_subject_gauss_th=0.97_r=1.json",
+                #"soccer_ball.json"
             ]
             # If any one of them is missing, return False (i.e., do NOT skip)
             for file in files_to_check:
@@ -1265,6 +1271,16 @@ class CentralPipeline:
             return True
 
         return False  # If no use_cache, we never skip
+
+    def remap_path(self, path):
+        """Remap paths from Colin's machine to current machine."""
+        if isinstance(path, str) and 'colin' in path.lower():
+            # Replace Colin's path with Jared's path
+            return path.replace(
+                r'c:\Users\colin\OneDrive\Desktop\Jersey-Number-Recognition',
+                r'C:\Users\jared\PycharmProjects\Jersey-Number-Recognition'
+            )
+        return path
         
     def run_soccernet(self,
                       run_soccer_ball_filter=True,

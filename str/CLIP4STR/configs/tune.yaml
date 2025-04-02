@@ -3,18 +3,46 @@ defaults:
   - _self_
 
 trainer:
-  gpus: 1  # tuning with DDP is not yet supported.
+  gpus: 1
+  max_epochs: 5
+  val_check_interval: 500  # Check validation more frequently
+
+model:
+  # These parameters will need matching code to be added
+  freeze_encoder: true
+  freeze_layers: 6
+  adapter_mode: true
+  adapter_dim: 256
+  adapter_alpha: 0.2
+  # Add path to pretrained CLIP4STR model
+  clip_pretrained: ${abs_root}/str/CLIP4STR/pretrained/clip/clip4str_huge_3e942729b1.pt
 
 tune:
-  num_samples: 10
+  num_samples: 3  # Reduced for faster tuning
   gpus_per_trial: 1
   lr:
-    min: 1e-4
-    max: 2e-3
+    min: 5e-5
+    max: 1e-3
   resume_dir: null
 
-hydra:
-  run:
-    # dir: ray_results/${model.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
-    # use absolute dir here for full control
-    dir: output/${model.name}_${now:%Y-%m-%d}_${now:%H-%M-%S}
+data:
+  _target_: strhub.data.module.SceneTextDataModule
+  root_dir: ${abs_root}/data/SoccerNet/jersey-2023/extracted
+  train_dir: images
+  # Remove any val_dir entry; instead, pass the label path:
+  train_label_path: ${abs_root}/data/SoccerNet/jersey-2023/extracted/train/train_gt.json
+  val_label_path: ${abs_root}/data/SoccerNet/jersey-2023/extracted/val/val_gt.json
+  img_size: [256, 256]
+  max_label_length: 32
+  charset_train: "0123456789"
+  charset_test: "0123456789"
+  batch_size: 32
+  num_workers: 4
+  augment: true
+  remove_whitespace: true
+  normalize_unicode: true
+  min_image_dim: 0
+  rotation: 0
+  collate_fn: null
+  output_url: null
+  openai_meanstd: true

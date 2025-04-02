@@ -13,145 +13,132 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import io
-import glob
-import lmdb
+import os
+import json
 import unicodedata
+from pathlib import Path
+from typing import Union, Callable, Optional
+from torch.utils.data import Dataset
 from PIL import Image
-from pathlib import Path, PurePath
-from typing import Callable, Optional, Union
-from torch.utils.data import Dataset, ConcatDataset
-from pytorch_lightning.utilities import rank_zero_info
 
-from strhub.data.utils import CharsetAdapter
+class TreeImageDataset(Dataset):
+    def __init__(self,
+                 root: Union[str, Path],
+                 charset: str,
+                 max_label_len: int,
+                 label_path: Optional[str] = None,
+                 remove_whitespace: bool = True,
+                 normalize_unicode: bool = True,
+                 min_image_dim: int = 0,
+                 transform: Optional[Callable] = None):
 
-
-def build_tree_dataset(root: Union[PurePath, str], *args, **kwargs):
-    try:
-        kwargs.pop('root')  # prevent 'root' from being passed via kwargs
-    except KeyError:
-        pass
-    root = Path(root).absolute()
-    rank_zero_info(f'dataset root:\t{root}')
-    datasets = []
-    for mdb in glob.glob(str(root / '**/data.mdb'), recursive=True):
-        mdb = Path(mdb)
-        ds_name = str(mdb.parent.relative_to(root))
-        ds_root = str(mdb.parent.absolute())
-        dataset = LmdbDataset(ds_root, *args, **kwargs)
-        rank_zero_info(f'\tlmdb:\t{ds_name}\tnum samples: {len(dataset)}')
-        datasets.append(dataset)
-    return ConcatDataset(datasets)
-
-
-class LmdbDataset(Dataset):
-    """Dataset interface to an LMDB database.
-
-    It supports both labelled and unlabelled datasets. For unlabelled datasets, the image index itself is returned
-    as the label. Unicode characters are normalized by default. Case-sensitivity is inferred from the charset.
-    Labels are transformed according to the charset.
-    """
-
-    def __init__(self, root: str, charset: str, max_label_len: int, min_image_dim: int = 0,
-                 remove_whitespace: bool = True, normalize_unicode: bool = True,
-                 unlabelled: bool = False, transform: Optional[Callable] = None):
-        self._env = None
-        self.root = root
-        self.unlabelled = unlabelled
+        self.root = Path(root)
+        self.charset = charset
+        self.max_label_len = max_label_len
         self.transform = transform
         self.labels = []
-        self.filtered_index_list = []
-        self.num_samples = self._preprocess_labels(charset, remove_whitespace, normalize_unicode,
-                                                   max_label_len, min_image_dim)
-        # log.info('The number of samples is {}'.format(self.num_samples))
+        self.image_paths = []
 
-    def __del__(self):
-        if self._env is not None:
-            self._env.close()
-            self._env = None
+        # Load labels from JSON if provided
+        label_dict = {}
+        if label_path and os.path.exists(label_path):
+            with open(label_path, 'r') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    # Convert all labels to strings
+                    label_dict = {k: str(v) for k, v in data.items()}
+                elif isinstance(data, list):
+                    for item in data:
+                        label_dict[item['image']] = str(item['label'])
+                else:
+                    raise ValueError("Unsupported label file format in " + label_path)
 
-    def _create_env(self):
-        return lmdb.open(self.root, max_readers=1, readonly=True, create=False,
-                         readahead=False, meminit=False, lock=False)
+        # List items in the root directory
+        items = os.listdir(self.root)
+        has_subdirs = any((self.root / x).is_dir() for x in items)
 
-    @property
-    def env(self):
-        if self._env is None:
-            self._env = self._create_env()
-        return self._env
-
-    def _preprocess_labels(self, charset, remove_whitespace, normalize_unicode, max_label_len, min_image_dim):
-        charset_adapter = CharsetAdapter(charset)
-        with self._create_env() as env, env.begin() as txn:
-            num_samples = int(txn.get('num-samples'.encode()))
-            if self.unlabelled:
-                return num_samples
-            for index in range(num_samples):
-                index += 1  # lmdb starts with 1
-                label_key = f'label-{index:09d}'.encode()
-                label = txn.get(label_key).decode()
-                # Normally, whitespace is removed from the labels.
-                if remove_whitespace:
-                    label = ''.join(label.split())
-                # Normalize unicode composites (if any) and convert to compatible ASCII characters
-                if normalize_unicode:
-                    label = unicodedata.normalize('NFKD', label).encode('ascii', 'ignore').decode()
-                # Filter by length before removing unsupported characters. The original label might be too long.
-                if len(label) > max_label_len:
+        if has_subdirs:
+            # Iterate over each subdirectory
+            for sub in items:
+                # Skip any directory named "augmented_data"
+                if sub.lower() == "augmented_data":
                     continue
-                label = charset_adapter(label)
-                # We filter out samples which don't contain any supported characters
-                if not label:
-                    continue
-                # Filter images that are too small.
-                if min_image_dim > 0:
-                    img_key = f'image-{index:09d}'.encode()
-                    buf = io.BytesIO(txn.get(img_key))
-                    w, h = Image.open(buf).size
-                    if w < self.min_image_dim or h < self.min_image_dim:
+
+                sub_path = self.root / sub
+                if sub_path.is_dir():
+                    # Use the folder name to look up its label
+                    folder_label = label_dict.get(sub, None)
+                    # Skip if no label is found or if the label indicates illegibility ("-1")
+                    if folder_label is None or folder_label == "-1":
                         continue
-                self.labels.append(label)
-                self.filtered_index_list.append(index)
-        return len(self.labels)
+
+                    folder_label = folder_label.strip()
+                    if remove_whitespace:
+                        folder_label = ''.join(folder_label.split())
+                    if normalize_unicode:
+                        folder_label = unicodedata.normalize('NFKD', folder_label).encode('ascii', 'ignore').decode()
+                    # Validate the label (only allow characters in the charset and within length limit)
+                    if not (len(folder_label) <= max_label_len and all(c in charset for c in folder_label)):
+                        continue
+
+                    # Iterate over image files in this subdirectory
+                    for img_file in os.listdir(sub_path):
+                        if img_file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                            full_path = sub_path / img_file
+                            if min_image_dim > 0:
+                                img = Image.open(full_path)
+                                if img.width < min_image_dim or img.height < min_image_dim:
+                                    continue
+                            self.labels.append(folder_label)
+                            self.image_paths.append(full_path)
+        else:
+            # No subdirectories: iterate directly over files in self.root
+            for img_file in items:
+                if img_file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    full_path = self.root / img_file
+                    label = label_dict.get(img_file, img_file)
+                    label = str(label)
+                    if label == "-1":
+                        continue  # Skip illegible images
+                    if remove_whitespace:
+                        label = ''.join(label.split())
+                    if normalize_unicode:
+                        label = unicodedata.normalize('NFKD', label).encode('ascii', 'ignore').decode()
+                    if len(label) <= max_label_len and all(c in charset for c in label):
+                        if min_image_dim > 0:
+                            img = Image.open(full_path)
+                            if img.width < min_image_dim or img.height < min_image_dim:
+                                continue
+                        self.labels.append(label)
+                        self.image_paths.append(full_path)
 
     def __len__(self):
-        return self.num_samples
+        return len(self.image_paths)
 
-    def __getitem__(self, index):
-        if self.unlabelled:
-            label = index
-        else:
-            label = self.labels[index]
-            index = self.filtered_index_list[index]
-
-        img_key = f'image-{index:09d}'.encode()
-        with self.env.begin() as txn:
-            imgbuf = txn.get(img_key)
-        buf = io.BytesIO(imgbuf)
-        img = Image.open(buf).convert('RGB')
-
-        if self.transform is not None:
+    def __getitem__(self, idx):
+        img = Image.open(self.image_paths[idx]).convert('RGB')
+        if self.transform:
             img = self.transform(img)
+        return img, self.labels[idx]
 
-        return img, label
 
+def build_tree_dataset(root: Union[Path, str], charset: str, max_label_len: int,
+                       min_image_dim: int = 0, remove_whitespace: bool = True,
+                       normalize_unicode: bool = True, transform: Optional[Callable] = None,
+                       label_path: Optional[str] = None):
+    # Use provided label_path, or default to parent's train_gt.json
+    if label_path is None:
+        label_path = Path(root).parent / 'train_gt.json'
+    else:
+        label_path = Path(label_path)
+    return TreeImageDataset(
+        root=root,
+        charset=charset,
+        max_label_len=max_label_len,
+        label_path=str(label_path),
+        min_image_dim=min_image_dim,
+        remove_whitespace=remove_whitespace,
+        normalize_unicode=normalize_unicode,
+        transform=transform
+    )
 
-if __name__ == "__main__":
-    import os
-
-    output_path = "."
-    root = "str_dataset/test/CUTE80/data.mdb"
-    charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    max_label_len = 25
-    dataset = LmdbDataset(root, charset, max_label_len)
-    # 512 * 3 = 1536
-    id1, id2 = 1539, 1568
-    id1, id2 = 1576, 1706
-    # image1, label1 = dataset[1539]
-    # image2, label2 = dataset[1568]
-    image1, label1 = dataset[id1]
-    image2, label2 = dataset[id2]
-
-    print(label1, label2)
-    image1.save(os.path.join(output_path, "imiage_{}.jpg".format(id1)))
-    image2.save(os.path.join(output_path, "imiage_{}.jpg".format(id2)))
