@@ -23,12 +23,15 @@ import subprocess
 import threading
 import sys
 import StreamlinedPipelineScripts.clip4str as clip4str_module
+from multiprocessing import Semaphore
 
 from DataProcessing.DataPreProcessing import DataPreProcessing, DataPaths, ModelUniverse, CommonConstants
 from DataProcessing.DataAugmentation import DataAugmentation, LegalTransformations, ImageEnhancement
 from ModelDevelopment.ImageBatchPipeline import ImageBatchPipeline, DataLabelsUniverse
 from DataProcessing.Logger import CustomLogger
 import helpers
+
+PROCESS_POOL_GPU_SEMAPHORE = Semaphore(6) # ProcessPoolExecutor semaphore
 
 def pose_worker(tracklet, output_processed_data_path, image_batch_size,
                   pose_env, pose_home, use_cache, logging_config, pyscript):
@@ -147,7 +150,7 @@ def process_tracklet_worker(args):
         (tracklet, images, output_processed_data_path, use_cache,
          input_data_path, tracklets_to_process, common_processed_data_dir,
          run_soccer_ball_filter, generate_features, run_filter, run_legible,
-         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size, GPU_SEMAPHORE) = args
+         display_transformed_image_sample, suppress_logging, num_images_per_tracklet, image_batch_size) = args
 
         # Limit images if required.
         if num_images_per_tracklet is not None:
@@ -181,7 +184,7 @@ def process_tracklet_worker(args):
             run_filter=run_filter,
             run_legible=run_legible,
             image_batch_size=image_batch_size,
-            GPU_SEMAPHORE=GPU_SEMAPHORE
+            GPU_SEMAPHORE=PROCESS_POOL_GPU_SEMAPHORE
         )
         pipeline.run_model_chain()
         return tracklet
@@ -211,7 +214,6 @@ class CentralPipeline:
                  tracklets_to_process_override: list = None,
                  use_image_enhancement: bool = False
                  ):
-        self.gpu_semaphore = None
         self.input_data_path = input_data_path
         self.gt_data_path = gt_data_path
         self.output_processed_data_path = output_processed_data_path
@@ -279,7 +281,7 @@ class CentralPipeline:
         # Limit concurrent GPU calls (example).
         # CRUCIAL to prevent too many parallel shipments to our GPU to prevent CUDA-out-of-memory issues
         # This will become a bottleneck as we enter series code here, but necessary to avoid exploding GPUs.
-        self.GPU_SEMAPHORE = threading.Semaphore(value=1)
+        self.GPU_SEMAPHORE = threading.Semaphore(value=6) # ThreadPoolExecutor semaphore
         
         self.image_enhancement = ImageEnhancement()
         
@@ -1252,8 +1254,8 @@ class CentralPipeline:
                 "features.npy",
                 "illegible_results.json",
                 "legible_results.json",
-                "main_subject_gauss_th=0.97_r=1.json",
-                "soccer_ball.json"
+                #"main_subject_gauss_th=0.97_r=1.json",
+                #"soccer_ball.json"
             ]
             # If any one of them is missing, return False (i.e., do NOT skip)
             for file in files_to_check:
@@ -1365,7 +1367,7 @@ class CentralPipeline:
                         self.suppress_logging,
                         self.num_images_per_tracklet,
                         self.image_batch_size,
-                        self.GPU_SEMAPHORE
+                        #self.GPU_SEMAPHORE
                     )
                     tasks.append(args)
 
@@ -1377,7 +1379,7 @@ class CentralPipeline:
                 # RECOMMENDED MULTIPLIER: 3-5x number of workers.
                 # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
                 # you would do 6*3 or 6*5 as input to this ThreadPool
-                with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+                with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
                     futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
                     pbar = tqdm(total=len(futures), 
