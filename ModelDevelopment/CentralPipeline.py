@@ -33,6 +33,40 @@ import helpers
 
 PROCESS_POOL_GPU_SEMAPHORE = Semaphore(6) # ProcessPoolExecutor semaphore
 
+def run_clip4str_worker(tracklet, output_processed_data_path, use_cache, input_data_path,
+                          common_processed_data_dir, results_file_name,
+                          model_path, clip_pretrained, read_script_path, python_exe, env):
+    """
+    Top-level worker function to run CLIP4STR inference for a single tracklet.
+    """
+    logger = CustomLogger().get_logger()
+
+    processed_data_path = os.path.join(output_processed_data_path, tracklet)
+    crops_dir = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
+    result_file = os.path.join(processed_data_path, results_file_name)
+
+    # If caching is enabled and the result file already exists, skip inference.
+    if use_cache and os.path.exists(result_file):
+        logger.info(f"Skipping tracklet {tracklet} (cache found at {result_file}).")
+        return tracklet, f"Cached: {result_file}"
+
+    try:
+        # Run CLIP4STR inference for this tracklet's crops directory.
+        success = clip4str_module.run_clip4str_inference(
+            python_path=python_exe,
+            read_script_path=read_script_path,
+            model_path=model_path,
+            clip_pretrained_path=clip_pretrained,
+            images_dir=crops_dir,
+            result_file=result_file,
+            logger=logger,
+            env=env
+        )
+        return tracklet, success
+    except Exception as e:
+        logger.error(f"Error processing tracklet {tracklet}: {e}", exc_info=True)
+        return tracklet, None
+
 def pose_worker(tracklet, output_processed_data_path, image_batch_size,
                   pose_env, pose_home, use_cache, logging_config, pyscript):
     """
@@ -725,7 +759,7 @@ class CentralPipeline:
 
     def run_crops_model(self):
         """
-        Runs the crops model for all tracklets (sequentially).
+        Runs the crops model for all tracklets in parallel using ThreadPoolExecutor.
         """
         # Ensure we have up-to-date legibility results
         self.aggregate_legibility_results_data()
@@ -740,16 +774,16 @@ class CentralPipeline:
         aggregated_skipped = {}
         aggregated_saved = []
 
-        # Process each tracklet in a simple for-loop
-        for tracklet in tqdm(self.legible_tracklets_list, desc="Generating crops for tracklets", leave=True):
+        # Define a worker function to process a single tracklet.
+        def process_tracklet(tracklet):
             tracklet_processed_output_dir = os.path.join(self.output_processed_data_path, tracklet)
             output_json = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['pose_output_json'])
             crops_destination_dir = os.path.join(tracklet_processed_output_dir, config.dataset['SoccerNet']['crops_folder'])
             
-            # CACHING:
+            # CACHING: Skip if crops destination exists and caching is enabled.
             if self.use_cache and os.path.exists(crops_destination_dir):
                 self.logger.info(f"Skipping tracklet {tracklet} (cache found at {crops_destination_dir}).")
-                continue
+                return tracklet, {}, []  # Return empty results
 
             # Ensure the crops folder exists
             Path(crops_destination_dir).mkdir(parents=True, exist_ok=True)
@@ -765,22 +799,36 @@ class CentralPipeline:
                     crops_destination_dir=crops_destination_dir,
                     all_legible=all_legible_for_this_tracklet
                 )
-
-                # Log partial results
                 self.logger.info(f"Done generating crops for tracklet {tracklet}.")
                 self.logger.info(f"Skipped dictionary for {tracklet}: {skipped}")
                 self.logger.info(f"Total saved images for {tracklet}: {len(saved)}")
-
-                # Merge the per-tracklet results into aggregated counters
-                for tr, count in skipped.items():
-                    aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
-                aggregated_saved.extend(saved)
-
+                return tracklet, skipped, saved
             except Exception as e:
                 self.logger.error(f"Error running crop generation for tracklet {tracklet}: {e}")
+                return tracklet, {}, []
 
-        # After processing all tracklets, log final aggregated results
-        self.logger.info("Done generating crops (sequential) for all tracklets.")
+        tasks = self.legible_tracklets_list
+        futures = {}
+
+        # Use a ThreadPoolExecutor to process tracklets in parallel.
+        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+            for tracklet in tasks:
+                futures[executor.submit(process_tracklet, tracklet)] = tracklet
+
+            # Use tqdm to monitor progress.
+            for future in tqdm(as_completed(futures), total=len(futures),
+                            desc="Generating crops for tracklets", leave=True):
+                try:
+                    tracklet, skipped, saved = future.result()
+                    # Merge the per-tracklet results into aggregated counters
+                    for tr, count in skipped.items():
+                        aggregated_skipped[tr] = aggregated_skipped.get(tr, 0) + count
+                    aggregated_saved.extend(saved)
+                except Exception as e:
+                    self.logger.error(f"Error processing tracklet {futures[future]}: {e}")
+
+        # After processing all tracklets, log final aggregated results.
+        self.logger.info("Done generating crops (parallel) for all tracklets.")
         self.logger.info(f"Aggregated skipped: {aggregated_skipped}")
         self.logger.info(f"Total saved across all tracklets: {len(aggregated_saved)}")
         
@@ -945,67 +993,52 @@ class CentralPipeline:
         env["PYTHONIOENCODING"] = "utf-8"
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-        # Configure how many parallel workers and batch size
+        # Configure number of parallel workers and batch size
         num_parallel_workers = self.num_workers
         batch_size = self.image_batch_size
 
-        # Optional semaphore to limit GPU usage
-        self.gpu_semaphore = threading.Semaphore(value=2)
+        # (Optional) If you still need a GPU semaphore, set it up globally (see previous discussion)
+        # For now, we'll assume it's not passed to the worker.
 
-        def run_clip4str_for_tracklet(tracklet):
-            """
-            Run CLIP4STR inference on a single tracklet's crops directory.
-            Skips if a cached result file is found (if self.use_cache is True).
-            """
-            processed_data_path = os.path.join(self.output_processed_data_path, tracklet)
-            crops_dir = os.path.join(processed_data_path, config.dataset['SoccerNet']['crops_folder'])
-            #result_file = os.path.join(processed_data_path, config.dataset['SoccerNet']['str_results_file'])
-            result_file = os.path.join(processed_data_path, self.results_file_name)
+        # Use the global results file name from your class, e.g., self.results_file_name
+        results_file_name = self.str_global_result_file
 
-            # If caching is enabled and the result file already exists, skip running the command.
-            if self.use_cache and os.path.exists(result_file):
-                self.logger.info(f"Skipping tracklet {tracklet} (cache found at {result_file}).")
-                return tracklet, f"Cached: {result_file}"
+        # Create a list of tracklets to process (self.legible_tracklets_list)
+        tasks = []
+        for tracklet in self.legible_tracklets_list:
+            tasks.append(tracklet)  # In this example, the only argument is tracklet; other parameters are passed below.
 
-            # Run CLIP4STR inference for this tracklet's crops directory
-            try:
-                success = clip4str_module.run_clip4str_inference(
-                    python_path=python_exe,
-                    read_script_path=read_script_path,
-                    model_path=model_path,
-                    clip_pretrained_path=clip_pretrained,
-                    images_dir=crops_dir,
-                    result_file=result_file,
-                    logger=self.logger,
-                    #num_workers=num_parallel_workers,
-                    #batch_size=batch_size,
-                    env=env,
-                    #gpu_semaphore=self.gpu_semaphore
-                )
-                return tracklet, success
-            except Exception as e:
-                self.logger.error(f"Error processing tracklet {tracklet}: {e}")
-                return tracklet, None
-
-        # Use a ThreadPoolExecutor to process each tracklet in parallel
+        # Use a ProcessPoolExecutor to process each tracklet in parallel.
         futures = {}
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching CLIP4STR on tracklets", leave=True):
-                futures[executor.submit(run_clip4str_for_tracklet, tracklet)] = tracklet
+        with ProcessPoolExecutor(max_workers=num_parallel_workers) as executor:
+            for tracklet in tqdm(tasks, desc="Dispatching CLIP4STR on tracklets", leave=True):
+                futures[executor.submit(
+                    run_clip4str_worker,
+                    tracklet,
+                    self.output_processed_data_path,
+                    self.use_cache,
+                    self.input_data_path,
+                    self.common_processed_data_dir,
+                    results_file_name,
+                    model_path,
+                    clip_pretrained,
+                    read_script_path,
+                    python_exe,
+                    env
+                )] = tracklet
 
-            # Aggregate the results as they complete
+            # Aggregate the results as they complete.
             for future in tqdm(as_completed(futures), total=len(futures),
                             desc="Aggregating CLIP4STR results", leave=True):
                 tracklet = futures[future]
                 try:
                     tracklet, output = future.result()
-                    # Optionally store or log the output
                     if output is None:
                         self.logger.error(f"Tracklet {tracklet} failed or returned no output.")
                     else:
                         self.logger.info(f"Tracklet {tracklet} completed: {output}")
                 except Exception as e:
-                    self.logger.error(f"Error processing tracklet {tracklet}: {e}")
+                    self.logger.error(f"Error processing tracklet {tracklet}: {e}", exc_info=True)
 
         self.logger.info("Done predicting numbers with parallel CLIP4STR")
 
@@ -1283,7 +1316,7 @@ class CentralPipeline:
                 r'C:\Users\jared\PycharmProjects\Jersey-Number-Recognition'
             )
         return path
-        
+
     def run_soccernet(self,
                       run_soccer_ball_filter=True,
                       generate_features=True,
