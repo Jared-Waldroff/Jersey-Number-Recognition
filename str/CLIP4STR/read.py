@@ -41,7 +41,12 @@ def main():
 
     print(f'Additional keyword arguments: {kwargs}')
 
-    model = load_from_checkpoint(args.checkpoint, **kwargs).eval().to(args.device)
+    model = load_from_checkpoint(
+        args.checkpoint,
+        max_label_length=10,
+        batch_size=32,
+        **kwargs
+    ).eval().to(args.device)
     img_transform = SceneTextDataModule.get_transform(model.hparams.img_size)
 
     files = sorted(

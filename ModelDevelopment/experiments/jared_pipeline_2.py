@@ -46,7 +46,7 @@ def main():
         use_image_enhancement=False,
 
         # Parallelization parameters - optimized for GPU
-        num_workers=2,
+        num_workers=1,
         tracklet_batch_size=12,
         image_batch_size=12,
         num_threads_multiplier=1
@@ -61,7 +61,7 @@ def main():
         run_legible_eval=False,
         run_pose=False,
         run_crops=False,
-        run_str=False,
+        run_str=True,
         run_combine=True,
         run_eval=True,
         use_clip4str=True,
