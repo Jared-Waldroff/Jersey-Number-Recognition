@@ -735,7 +735,7 @@ class CentralPipeline:
         total_misses = 0
 
         # Simple serial loop over each pose entry
-        for entry in tqdm(all_poses, desc="Generating crops"):
+        for entry in all_poses:
             result = self.process_crop(entry, all_legible, crops_destination_dir)
             if result is None:
                 continue
@@ -992,9 +992,7 @@ class CentralPipeline:
 
         # (Optional) If you still need a GPU semaphore, set it up globally (see previous discussion)
         # For now, we'll assume it's not passed to the worker.
-
-        # Use the global results file name from your class, e.g., self.results_file_name
-        results_file_name = self.str_global_result_file
+        results_file_name = self.results_file_name
 
         # Create a list of tracklets to process (self.legible_tracklets_list)
         tasks = []
