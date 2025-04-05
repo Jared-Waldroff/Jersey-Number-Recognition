@@ -404,6 +404,8 @@ class CentralPipeline:
         self.logger.info(f"Saved global illegible results to: {global_illegible_results_path}")
 
     def aggregate_pose(self):
+        self.aggregate_legibility_results_data()
+        self.set_legibility_arrays()
         """Aggregates pose results from individual tracklets into a global file."""
         self.logger.info("Aggregating pose results")
 
