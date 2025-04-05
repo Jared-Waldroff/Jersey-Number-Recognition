@@ -605,7 +605,7 @@ class CentralPipeline:
             }
             
             # NOTE: ProcessPool is 25% faster but shoes no logs. ThreadPool shows us logs so might be better to just stick to ThreadPool
-            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            with ProcessPoolExecutor(max_workers=2) as executor:
                 for tracklet in self.legible_tracklets_list:
                     futures.append(executor.submit(pose_worker,
                                                 tracklet,
@@ -875,7 +875,7 @@ class CentralPipeline:
 
         # Use a ThreadPoolExecutor to run the STR inference in parallel for each tracklet.
         futures = {}
-        with ThreadPoolExecutor(max_workers=self.num_workers * self.num_threads_multiplier) as executor:
+        with ThreadPoolExecutor(max_workers=1) as executor:
             for tracklet in tqdm(self.legible_tracklets_list, desc="Dispatching STR on tracklets", leave=True):
                 futures[executor.submit(run_str_for_tracklet, tracklet)] = tracklet
 
@@ -1004,7 +1004,7 @@ class CentralPipeline:
 
         # Use a ProcessPoolExecutor to process each tracklet in parallel.
         futures = {}
-        with ProcessPoolExecutor(max_workers=num_parallel_workers) as executor:
+        with ProcessPoolExecutor(max_workers=1) as executor:
             for tracklet in tqdm(tasks, desc="Dispatching CLIP4STR on tracklets", leave=True):
                 futures[executor.submit(
                     run_clip4str_worker,
@@ -1281,13 +1281,14 @@ class CentralPipeline:
         print(f"Correct in full results but not picked: {count_of_correct_in_full_results}")
 
     def skip_preprocessing(self, current_tracklet_dir) -> bool:
+        filter_data = config.dataset['SoccerNet']['gauss_filtered']
         if self.use_cache:
             # Files to check if they exist
             files_to_check = [
                 "features.npy",
                 "illegible_results.json",
                 "legible_results.json",
-                #"main_subject_gauss_th=0.97_r=1.json",
+                f"{filter_data['filename']}_th={filter_data['th']}_r={filter_data['r']}.json"
                 #"soccer_ball.json"
             ]
             # If any one of them is missing, return False (i.e., do NOT skip)
@@ -1449,7 +1450,6 @@ class CentralPipeline:
             self.aggregate_pose()
         if run_crops:
             self.run_crops_model()
-            
         if use_clip4str:
             self.results_file_name = config.dataset['SoccerNet']['clpip4str_results_file']
         else:
