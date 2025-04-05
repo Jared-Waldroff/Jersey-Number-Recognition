@@ -2,10 +2,9 @@ import random
 import math
 import torch
 import torchvision.transforms.functional as F
-from PIL import Image, ImageFilter
+from PIL import ImageEnhance, Image, ImageFilter
 import torchvision.transforms as transforms
 from enum import Enum
-from PIL import ImageEnhance
 import numpy as np
 import cv2
 
@@ -246,16 +245,26 @@ class ImageEnhancement:
     Our algo is designed so that we train our images on tough scenarios.
     At runtime, we want to help our model out by enhancing the images.
     This means using properties from DataAugmentation to our advantage at runtime.
-    Aspects include: increasing contrast, brightness and sharpness or CLAHE.
+    Aspects include: increasing contrast, brightness, and sharpness,
+    applying CLAHE, optionally an Unsharp Mask, and (optionally) deblurring
+    using a Wiener filter to reduce motion blur.
     """
 
     def __init__(self,
                  brightness_factor=1,
                  contrast_factor=1,
-                 sharpness_factor=1.25,
+                 sharpness_factor=1.5,
                  use_clahe=True,
-                 clahe_clip_limit=1.15,
-                 clahe_tile_grid_size=(2, 2),
+                 clahe_clip_limit=1.75,
+                 clahe_tile_grid_size=(1, 1),
+                 use_unsharp=False,
+                 unsharp_radius=0.5,
+                 unsharp_percent=120,
+                 unsharp_threshold=2,
+                 use_deblur=False,
+                 deblur_kernel_length=5,       # Small images may use 3 or 5
+                 deblur_kernel_angle=0,        # Adjust if motion blur at an angle
+                 wiener_K=0.01,                # Regularization constant for the Wiener filter
                  mean=torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1),
                  std=torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)):
         """
@@ -266,12 +275,28 @@ class ImageEnhancement:
             use_clahe: If True, uses CLAHE instead of PIL enhancements.
             clahe_clip_limit: CLAHE contrast limit.
             clahe_tile_grid_size: CLAHE tile grid size.
+            use_unsharp: If True, applies an unsharp mask filter after the primary enhancement.
+            unsharp_radius: Radius for the unsharp mask filter.
+            unsharp_percent: Percentage for unsharp mask strength.
+            unsharp_threshold: Threshold for unsharp mask filter.
+            use_deblur: If True, applies a Wiener filter deblurring step to reduce motion blur.
+            deblur_kernel_length: Kernel length for the motion blur kernel.
+            deblur_kernel_angle: Kernel angle (in degrees) for the motion blur kernel.
+            wiener_K: Regularization constant for the Wiener deblurring filter.
             mean, std: Normalization stats used by the model.
         """
         self.use_clahe = use_clahe
         self.brightness_factor = brightness_factor
         self.contrast_factor = contrast_factor
         self.sharpness_factor = sharpness_factor
+        self.use_unsharp = use_unsharp
+        self.unsharp_radius = unsharp_radius
+        self.unsharp_percent = unsharp_percent
+        self.unsharp_threshold = unsharp_threshold
+        self.use_deblur = use_deblur
+        self.deblur_kernel_length = deblur_kernel_length
+        self.deblur_kernel_angle = deblur_kernel_angle
+        self.wiener_K = wiener_K
         self.mean = mean
         self.std = std
 
@@ -298,25 +323,87 @@ class ImageEnhancement:
         """
         Enhances a normalized image tensor (C, H, W).
         If use_clahe=True, applies CLAHE; otherwise uses PIL-based enhancements.
+        Optionally applies an unsharp mask and a Wiener deblurring filter.
         Returns a normalized enhanced image tensor.
         """
+        # Primary enhancement
         if self.use_clahe:
-            return self.clahe_enhancer.enhance_with_clahe(image)
+            enhanced_tensor = self.clahe_enhancer.enhance_with_clahe(image)
+        else:
+            denorm = self.denormalize(image).clamp(0, 1)
+            pil_img = self.to_pil(denorm)
+            enhancer = ImageEnhance.Brightness(pil_img)
+            pil_img = enhancer.enhance(self.brightness_factor)
+            enhancer = ImageEnhance.Contrast(pil_img)
+            pil_img = enhancer.enhance(self.contrast_factor)
+            enhancer = ImageEnhance.Sharpness(pil_img)
+            pil_img = enhancer.enhance(self.sharpness_factor)
+            enhanced_tensor = self.to_tensor(pil_img)
+            enhanced_tensor = self.normalize(enhanced_tensor)
 
-        # === PIL-based enhancement path ===
-        denorm = self.denormalize(image).clamp(0, 1)
-        pil_img = self.to_pil(denorm)
+        # Optionally apply an unsharp mask to further enhance edges
+        if self.use_unsharp:
+            pil_img = self.to_pil(self.denormalize(enhanced_tensor).clamp(0, 1))
+            pil_img = pil_img.filter(ImageFilter.UnsharpMask(
+                radius=self.unsharp_radius,
+                percent=self.unsharp_percent,
+                threshold=self.unsharp_threshold))
+            enhanced_tensor = self.to_tensor(pil_img)
+            enhanced_tensor = self.normalize(enhanced_tensor)
 
-        # Enhance brightness, contrast, and sharpness
-        enhancer = ImageEnhance.Brightness(pil_img)
-        pil_img = enhancer.enhance(self.brightness_factor)
+        # Optionally apply Wiener deblurring to reduce motion blur
+        if self.use_deblur:
+            # Convert tensor back to a PIL image (denormalized) and then to a NumPy array.
+            pil_img = self.to_pil(self.denormalize(enhanced_tensor).clamp(0, 1))
+            img_np = np.array(pil_img)  # shape: (H, W, C)
+            # Create the motion blur kernel.
+            kernel = self.motion_blur_kernel(self.deblur_kernel_length, self.deblur_kernel_angle)
+            # Apply the Wiener filter deblurring to each channel independently.
+            deblurred = np.zeros_like(img_np)
+            for c in range(img_np.shape[2]):
+                deblurred[..., c] = self.wiener_deblur(img_np[..., c], kernel, self.wiener_K)
+            # Convert back to a PIL image.
+            pil_img_deblurred = Image.fromarray(deblurred)
+            # Convert to tensor and re-normalize.
+            enhanced_tensor = self.to_tensor(pil_img_deblurred)
+            enhanced_tensor = self.normalize(enhanced_tensor)
 
-        enhancer = ImageEnhance.Contrast(pil_img)
-        pil_img = enhancer.enhance(self.contrast_factor)
+        return enhanced_tensor
 
-        enhancer = ImageEnhance.Sharpness(pil_img)
-        pil_img = enhancer.enhance(self.sharpness_factor)
+    @staticmethod
+    def motion_blur_kernel(length, angle):
+        """
+        Create a normalized motion blur kernel of a given length and angle.
+        """
+        # Create a horizontal line kernel.
+        kernel = np.zeros((length, length), dtype=np.float32)
+        kernel[int((length - 1) / 2), :] = np.ones(length, dtype=np.float32)
+        # Rotate the kernel to the specified angle.
+        center = (length / 2 - 0.5, length / 2 - 0.5)
+        rot_mat = cv2.getRotationMatrix2D(center, angle, 1)
+        kernel = cv2.warpAffine(kernel, rot_mat, (length, length))
+        kernel = kernel / np.sum(kernel) if np.sum(kernel) != 0 else kernel
+        return kernel
 
-        # Convert back to tensor and re-normalize
-        enhanced_tensor = self.to_tensor(pil_img)
-        return self.normalize(enhanced_tensor)
+    @staticmethod
+    def wiener_deblur(image, kernel, K=0.01):
+        """
+        Apply Wiener filter deconvolution to remove blur.
+        Args:
+            image: Input blurred image as a 2D NumPy array.
+            kernel: Blur kernel.
+            K: Regularization constant.
+        Returns:
+            Deblurred image as a NumPy array.
+        """
+        image = np.float32(image) / 255.0
+        image_fft = np.fft.fft2(image)
+        kernel_fft = np.fft.fft2(kernel, s=image.shape)
+        kernel_fft_conj = np.conj(kernel_fft)
+        wiener_filter = kernel_fft_conj / (np.abs(kernel_fft)**2 + K)
+        result_fft = image_fft * wiener_filter
+        result = np.fft.ifft2(result_fft)
+        result = np.abs(result)
+        result = np.clip(result, 0, 1)
+        result = (result * 255).astype(np.uint8)
+        return result
