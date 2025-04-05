@@ -680,21 +680,22 @@ class CentralPipeline:
 
         # ========== Optional Enhancement ==========
         if getattr(self, "use_image_enhancement", False):
-            # ------------------------------------------------
+            # Before enhancing, ensure the crop dimensions are even:
+            h, w, _ = crop.shape
+            new_w = w if w % 2 == 0 else w + 1
+            new_h = h if h % 2 == 0 else h + 1
+            if new_w != w or new_h != h:
+                crop = cv2.resize(crop, (new_w, new_h))
+                #self.logger.info(f"Resized crop from ({w}, {h}) to ({new_w}, {new_h}) to ensure even dimensions.")
+
             # 1) Convert OpenCV crop (BGR) -> RGB -> Torch Tensor
-            # ------------------------------------------------
             crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
             crop_tensor = transforms.ToTensor()(crop_rgb)  # (C, H, W)
 
-            # ------------------------------------------------
             # 2) Enhance using the custom image enhancement pipeline
-            # ------------------------------------------------
             enhanced_tensor = self.image_enhancement.enhance_image(crop_tensor)
             
-            # ------------------------------------------------
             # 3) Convert back to NumPy (BGR) for cv2.imwrite
-            # ------------------------------------------------
-            # clamp to [0, 1] so no unexpected float rounding errors
             enhanced_clamped = enhanced_tensor.clamp(0, 1)
             enhanced_pil = transforms.ToPILImage()(enhanced_clamped)
             enhanced_rgb = np.array(enhanced_pil)
@@ -1409,7 +1410,7 @@ class CentralPipeline:
                 # RECOMMENDED MULTIPLIER: 3-5x number of workers.
                 # e.g. if you have a 14 core CPU and you find 6 cores stable for ProcessPool,
                 # you would do 6*3 or 6*5 as input to this ThreadPool
-                with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                     futures = {executor.submit(process_tracklet_worker, task): task[0] for task in tasks}
 
                     pbar = tqdm(total=len(futures), 
