@@ -16,7 +16,7 @@ dec_mlp_ratio: 4
 dec_depth: 1
 enc_del_cls: false
 dec_ndim_no_decay: true
-context_length: 16
+context_length: 2
 use_language_model: true
 image_detach: true
 type_embedding: false

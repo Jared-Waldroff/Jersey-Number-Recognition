@@ -46,10 +46,10 @@ def main():
         use_image_enhancement=False,
 
         # Parallelization parameters - optimized for GPU
-        num_workers=1,
-        tracklet_batch_size=12,
-        image_batch_size=12,
-        num_threads_multiplier=1
+        num_workers=2,
+        tracklet_batch_size=24,
+        image_batch_size=24,
+        num_threads_multiplier=2
     )
 
     # Run the SoccerNet pipeline

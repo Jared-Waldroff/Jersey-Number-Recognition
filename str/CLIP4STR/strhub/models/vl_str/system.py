@@ -13,8 +13,8 @@ from torch.optim.lr_scheduler import OneCycleLR
 from pytorch_lightning.utilities import rank_zero_info
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
-from strhub.clip import clip
-from strhub.models.base import CrossEntropySystem
+from str.CLIP4STR.strhub.clip import clip
+from str.CLIP4STR.strhub.models.base import CrossEntropySystem
 from .modules import DecoderLayer, Decoder, modify_attn_mask
 
 
@@ -167,86 +167,79 @@ class VL4STR(CrossEntropySystem):
 
         # Query positions up to `num_steps`
         vis_pos_queries = self.visual_decoder.pos_queries[:, :num_steps].expand(bs, -1, -1)
-        crs_pos_queries = self.cross_decoder.pos_queries[:, :num_steps].expand(bs, -1, -1) if self.use_language_model else None
+        crs_pos_queries = self.cross_decoder.pos_queries[:, :num_steps].expand(bs, -1,
+                                                                               -1) if self.use_language_model else None
 
         # a left-to-right auto-regressive mask, special case for the forward permutation
-        content_mask = query_mask = torch.triu(torch.full((num_steps, num_steps), float('-inf'), device=self._device), 1)
+        content_mask = query_mask = torch.triu(torch.full((num_steps, num_steps), float('-inf'), device=self._device),
+                                               1)
         bos = torch.full((bs, 1), self.bos_id, dtype=torch.long, device=self._device)
 
         if self.decode_ar:
+            # Initialization with pre-allocated tensor instead of list
+            logits = torch.zeros((bs, num_steps, len(self.tokenizer) - 2), device=self._device)
             tgt_in = torch.full((bs, num_steps), self.pad_id, dtype=torch.long, device=self._device)
             tgt_in[:, 0] = self.bos_id
 
-            logits = []
-            all_visual_vec = []
             for i in range(num_steps):
                 j = i + 1  # next token index
-                # Efficient decoding: Input the context up to the ith token. We use only one query (at position = i) at a time.
-                # This works because of the lookahead masking effect of the canonical (forward) AR context.
-                # Past tokens have no access to future tokens, hence are fixed once computed.
-                p_i, visual_vec = self.visual_decode(tgt_in[:, :j], memory, tgt_query=vis_pos_queries[:, i:j],
-                                            tgt_query_mask=query_mask[i:j, :j], content_mask=content_mask[:j, :j],)
-                # the next token probability is in the output's ith token position
-                logits.append(p_i)
-                all_visual_vec.append(visual_vec.clone())
+                # Efficient decoding: Input the context up to the ith token
+                p_i, _ = self.visual_decode(tgt_in[:, :j], memory,
+                                            tgt_query=vis_pos_queries[:, i:j],
+                                            tgt_query_mask=query_mask[i:j, :j],
+                                            content_mask=content_mask[:j, :j])
+
+                # Store logits for current step
+                logits[:, i] = p_i.squeeze()
+
                 if j < num_steps:
                     # greedy decode. add the next token index to the target input
                     tgt_in[:, j] = p_i.squeeze().argmax(-1)
                     if testing and (tgt_in == self.eos_id).any(dim=-1).all():
                         break
-            logits = torch.cat(logits, dim=1)
-            visual_vec = torch.cat(all_visual_vec, dim=1)
-
         else:
-            # No prior context, so input is just <bos>. We query all positions.
-            # tgt_in = torch.full((bs, 1), self.bos_id, dtype=torch.long, device=self._device)
-            logits, visual_vec = self.visual_decode(bos, memory, tgt_query=vis_pos_queries)
+            # No prior context, so input is just <bos>
+            logits, _ = self.visual_decode(bos, memory, tgt_query=vis_pos_queries)
 
+        # Cross-modal decoding (if enabled)
         if self.use_language_model:
             crs_num_steps = logits.shape[1]
+
             if self.cross_fast_decode:
-                # just use visual output as input context
-                cross_logits, cross_vec = self.cross_decode(logits, tgt_in[:, :crs_num_steps], memory, tgt_query=crs_pos_queries[:, :crs_num_steps],
-                                            tgt_query_mask=query_mask[:crs_num_steps, :crs_num_steps],
-                                            content_mask=content_mask[:crs_num_steps, :crs_num_steps],)
+                cross_logits, _ = self.cross_decode(
+                    logits,
+                    tgt_in[:, :crs_num_steps],
+                    memory,
+                    tgt_query=crs_pos_queries[:, :crs_num_steps],
+                    tgt_query_mask=query_mask[:crs_num_steps, :crs_num_steps],
+                    content_mask=content_mask[:crs_num_steps, :crs_num_steps]
+                )
             else:
-                # prediction of cross-modal branch as input context
+                # Pre-allocate cross_logits tensor
+                cross_logits = torch.zeros_like(logits)
                 cross_memory = self.encoder_cross_modal_feature(logits, memory)
-                cross_logits = []
-                all_cross_vec = []
+
                 for i in range(crs_num_steps):
-                    j = i + 1  # next token index
-                    p_i, cross_vec = self.cross_decode(logits, tgt_in[:, :j], memory, tgt_query=crs_pos_queries[:, i:j],
-                                                tgt_query_mask=query_mask[i:j, :j], content_mask=content_mask[:j, :j], cross_memory=cross_memory)                
-                    cross_logits.append(p_i)
-                    all_cross_vec.append(cross_vec.clone())
+                    j = i + 1
+                    p_i, _ = self.cross_decode(
+                        logits,
+                        tgt_in[:, :j],
+                        memory,
+                        tgt_query=crs_pos_queries[:, i:j],
+                        tgt_query_mask=query_mask[i:j, :j],
+                        content_mask=content_mask[:j, :j],
+                        cross_memory=cross_memory
+                    )
+
+                    cross_logits[:, i] = p_i.squeeze()
+
                     if j < crs_num_steps:
                         tgt_in[:, j] = p_i.squeeze().argmax(-1)
-                cross_logits = torch.cat(cross_logits, dim=1)
-                cross_vec = torch.cat(all_cross_vec, dim=1)
 
-        if self.refine_iters:
-            # For iterative refinement, we always use a 'cloze' mask.
-            # We can derive it from the AR forward mask by unmasking the token context to the right.
-            query_mask[torch.triu(torch.ones(num_steps, num_steps, dtype=torch.bool, device=self._device), 2)] = 0
-            bos = torch.full((bs, 1), self.bos_id, dtype=torch.long, device=self._device)
-            for i in range(self.refine_iters):
-                # Prior context is the previous output.
-                tgt_in = torch.cat([bos, logits[:, :-1].argmax(-1)], dim=1)
-                tgt_padding_mask = ((tgt_in == self.eos_id).cumsum(-1) > 0)  # mask tokens beyond the first EOS token.
-                logits, visual_vec = self.visual_decode(tgt_in, memory,
-                                                    tgt_query=vis_pos_queries, tgt_query_mask=query_mask[:, :tgt_in.shape[1]],
-                                                    content_mask=content_mask, tgt_padding_mask=tgt_padding_mask,)
-                if self.use_language_model:
-                    tgt_in = torch.cat([bos, cross_logits[:, :-1].argmax(-1)], dim=1)
-                    tgt_padding_mask = ((tgt_in == self.eos_id).cumsum(-1) > 0)
-                    cross_logits, cross_vec = self.cross_decode(logits, tgt_in, memory,
-                                                    tgt_query=crs_pos_queries, tgt_query_mask=query_mask[:, :tgt_in.shape[1]],
-                                                    content_mask=content_mask, tgt_padding_mask=tgt_padding_mask,)
+        # Use cross_logits or fallback to visual logits
+        final_logits = cross_logits if self.use_language_model and cross_logits is not None else logits
 
-        # TODO: how to fuse the final predictions
-        logits = cross_logits
-        return logits
+        return final_logits
 
     def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
         images, labels = batch

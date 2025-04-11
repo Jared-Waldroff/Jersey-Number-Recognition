@@ -19,7 +19,7 @@ from torch import nn as nn, Tensor
 from torch.nn import functional as F
 from torch.nn.modules import transformer
 from timm.models.helpers import named_apply
-from strhub.models.utils import init_weights
+from str.CLIP4STR.strhub.models.utils import init_weights
 
 
 class DecoderLayer(nn.Module):

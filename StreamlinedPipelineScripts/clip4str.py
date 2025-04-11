@@ -108,7 +108,7 @@ def log_sample_results(results_dict, logger, sample_count=5):
 
 
 def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretrained_path,
-                           images_dir, result_file, logger, env=None):
+                           images_dir, result_file, logger, env=None, model_type="vl4str"):
     """
     Run the CLIP4STR model for inference.
 
@@ -143,10 +143,16 @@ def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretr
     command = [
         python_path,
         read_script_path,
-        model_path,
+        "C:/Users/jared/PycharmProjects/Jersey-Number-Recognition/data/pre_trained_models/clip4str/converted_model_89.7_accuracy.pt",
         f"--images_path={images_dir}",
         "--device=cuda",
-        f"--clip_pretrained={clip_pretrained_path}"
+        f"--clip_pretrained={clip_pretrained_path}",
+        "--model_type:str=vl4str",
+        "--max_label_length:int=26",
+        "--context_length:int=26",
+        "--decoder_length:int=26",
+        "--cross_gt_context:bool=False",
+        "--cross_loss_weight:float=0.0"
     ]
 
     logger.info(f"Running command: {' '.join(command)}")
@@ -175,6 +181,11 @@ def run_clip4str_inference(python_path, read_script_path, model_path, clip_pretr
         # Save results as JSON
         with open(result_file, 'w') as f:
             json.dump(results_dict, f, indent=2)
+
+        # Add this in run_clip4str_inference before saving results
+        logger.info(f"Writing results to: {result_file}")
+        # In parse_output, add:
+        logger.info(f"Parsed {len(results_dict)} results from output")
 
         logger.info(f"Saved {len(results_dict)} jersey number predictions to {result_file}")
 

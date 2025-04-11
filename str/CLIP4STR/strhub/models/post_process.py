@@ -1,6 +1,6 @@
 # coding = utf-8
 import torch
-from strhub.clip import clip
+from str.CLIP4STR.strhub.clip import clip
 
 
 @torch.no_grad()

@@ -97,24 +97,37 @@ def create_model(experiment: str, pretrained: bool = False, **kwargs):
 
 
 def load_from_checkpoint(checkpoint_path: str, **kwargs):
-    # if checkpoint_path.startswith('pretrained='):
-    #     model_id = checkpoint_path.split('=', maxsplit=1)[1]
-    #     model = create_model(model_id, True, **kwargs)
-    # else:
-    #     ModelClass, _ = _get_model_class(checkpoint_path)
-    #     model = ModelClass.load_from_checkpoint(checkpoint_path, **kwargs)
+    ModelClass, experiment = _get_model_class(checkpoint_path)
+
     try:
-        ModelClass, _ = _get_model_class(checkpoint_path)
+        # First try: Load directly with Lightning's method
         model = ModelClass.load_from_checkpoint(checkpoint_path, **kwargs)
-    except:
-        ModelClass, experiment = _get_model_class(checkpoint_path)
+    except Exception as e:
+        print(f"Lightning loader failed: {e}")
         try:
+            # Second try: Load config and manually load state dict
             config = _get_config(experiment, **kwargs)
-        except FileNotFoundError:
-            raise InvalidModelError("No configuration found for '{}'".format(experiment)) from None
-        model = ModelClass(**config)
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        model.load_state_dict(checkpoint)
+            model = ModelClass(**config)
+
+            # Load checkpoint and extract state_dict if needed
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+
+            # If this is a Lightning checkpoint with 'state_dict' key
+            if "state_dict" in checkpoint:
+                print("Loading from Lightning checkpoint state_dict")
+                state_dict = checkpoint["state_dict"]
+
+                # Try strict=False to handle parameter mismatches
+                model.load_state_dict(state_dict, strict=False)
+            else:
+                # It's probably just a state_dict
+                print("Loading from regular state_dict")
+                model.load_state_dict(checkpoint, strict=False)
+
+        except Exception as inner_e:
+            # If all else fails, print detailed error and raise
+            print(f"Failed to load model: {inner_e}")
+            raise inner_e
 
     return model
 

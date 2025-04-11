@@ -22,15 +22,17 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from nltk import edit_distance
-from pytorch_lightning.utilities.types import EPOCH_OUTPUT, STEP_OUTPUT
+# Removed incompatible import
+EPOCH_OUTPUT = None
+STEP_OUTPUT = None
 from timm.optim import create_optimizer_v2
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import OneCycleLR
 
-from strhub.data.utils import CharsetAdapter, CTCTokenizer, Tokenizer, BaseTokenizer
-from strhub.models.post_process import clip_post_process
-from strhub.clip import clip
+from str.CLIP4STR.strhub.data.utils import CharsetAdapter, CTCTokenizer, Tokenizer, BaseTokenizer
+from str.CLIP4STR.strhub.models.post_process import clip_post_process
+from str.CLIP4STR.strhub.clip import clip
 
 
 @dataclass

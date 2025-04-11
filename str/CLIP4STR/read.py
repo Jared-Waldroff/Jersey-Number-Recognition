@@ -16,6 +16,7 @@
 import os
 import argparse
 import json  # Add this import
+import sys
 
 import torch
 
@@ -41,12 +42,74 @@ def main():
 
     print(f'Additional keyword arguments: {kwargs}')
 
-    model = load_from_checkpoint(
-        args.checkpoint,
-        max_label_length=10,
-        batch_size=32,
-        **kwargs
-    ).eval().to(args.device)
+    try:
+        # Check what's in the checkpoint
+        print("Loading checkpoint from", args.checkpoint)
+        checkpoint = torch.load(args.checkpoint, map_location='cpu')
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            print("Found state_dict in checkpoint")
+        else:
+            print("WARNING: Checkpoint format may not be compatible")
+    except Exception as e:
+        print(f"Error inspecting checkpoint: {e}")
+
+    # Replace the load_from_checkpoint call with this code
+    try:
+        # Load the checkpoint
+        checkpoint = torch.load(args.checkpoint, map_location='cpu')
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+
+        model = load_from_checkpoint(
+            args.checkpoint,
+            name="vl4str",  # Explicitly set the model name
+            charset_train="0123456789",
+            charset_test="0123456789",
+            max_label_length=25,  # Critical - must match checkpoint value
+            context_length=26,
+            decoder_length=26,
+            batch_size=32,
+            img_size=[224, 224],
+            patch_size=[16, 16],
+            embed_dim=512,
+            enc_num_heads=12,
+            enc_mlp_ratio=4,
+            enc_depth=12,
+            enc_width=768,
+            dec_num_heads=8,
+            dec_mlp_ratio=4,
+            dec_depth=1,
+            perm_num=6,
+            perm_forward=True,
+            perm_mirrored=True,
+            decode_ar=True,
+            refine_iters=1,
+            dropout=0.1,
+            # Include all parameters from your checkpoint
+            use_language_model=True,
+            freeze_backbone=True,
+            freeze_language_backbone=True,
+            freeze_image_backbone=True,
+            cross_gt_context=True,
+            cross_loss_weight=0.5,
+            use_share_dim=True,
+            image_detach=True,
+            **kwargs
+        ).eval().to(args.device)
+
+        # Load with non-strict matching
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        print(f"Loaded model with {len(missing)} missing keys and {len(unexpected)} unexpected keys")
+
+        model = model.eval().to(args.device)
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
     img_transform = SceneTextDataModule.get_transform(model.hparams.img_size)
 
     files = sorted(

@@ -57,7 +57,7 @@ class DataPaths(Enum):
     COMMON_PROCESSED_OUTPUT_DATA_CHALLENGE = str(Path(PROCESSED_DATA_OUTPUT_DIR_CHALLENGE) / 'common_data')
     STREAMLINED_PIPELINE = str(Path.cwd().parent.parent / 'StreamlinedPipelineScripts')
     ENHANCED_STR_ROOT = str(Path(PRE_TRAINED_MODELS_DIR) / 'clip4str')
-    ENHANCED_STR_MAIN = str(Path(ENHANCED_STR_ROOT) / 'epoch=29-step=44790-val_accuracy=91.0577-val_NED=92.3258.ckpt')
+    ENHANCED_STR_MAIN = str(Path(ENHANCED_STR_ROOT) / 'epoch=39-step=145640-val_accuracy=67.3452-val_NED=73.3072.ckpt')
     ENHANCED_STR_OPEN_CLIP = str(Path(ENHANCED_STR_ROOT) / 'ViT-B-16.pt')
     ENHANCED_STR_VIT_L = str(Path(ENHANCED_STR_ROOT) / 'ViT-L-14.pt')
 
